@@ -1,0 +1,15 @@
+.worktrees/
+.vscode/
+builddir*/
+compile_commands.json
+*.db
+*.db-*
+*.log
+*.dmg
+*.deb
+subprojects/packagecache/
+subprojects/.wraplock
+subprojects/raylib-*/
+subprojects/sqlite-*/
+.DS_Store
+docs/*

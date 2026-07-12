@@ -1,0 +1,71 @@
+---
+Language: C
+BasedOnStyle: LLVM
+
+# Brace style: Attach (Java-equivalent in clang-format)
+BreakBeforeBraces: Attach
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+
+# Pointer / reference alignment: left (attached to type)
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Column limit
+ColumnLimit: 120
+
+# Line endings
+LineEnding: LF
+InsertNewlineAtEOF: true
+
+# Space before ( in control flow keywords: if, while, for, switch
+SpaceBeforeParens: ControlStatements
+
+# No spaces inside parentheses
+SpacesInParentheses: false
+SpaceInEmptyParentheses: false
+
+# Operator spacing: spaces around = and other operators
+SpaceBeforeAssignmentOperators: true
+SpaceAroundPointerQualifiers: Default
+
+# Switch / case indentation
+IndentCaseLabels: true
+
+# Short constructs
+AllowShortBlocksOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+
+# No column-alignment anywhere
+AlignConsecutiveAssignments:
+  Enabled: false
+AlignConsecutiveDeclarations:
+  Enabled: false
+AlignConsecutiveMacros:
+  Enabled: false
+AlignConsecutiveBitFields:
+  Enabled: false
+AlignTrailingComments:
+  Kind: Never
+
+# Other alignment
+AlignArrayOfStructures: None
+AlignEscapedNewlines: DontAlign
+AlignOperands: DontAlign
+
+# Include sorting: sort within each blank-line-separated group
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+
+# Misc
+MaxEmptyLinesToKeep: 2
+KeepEmptyLinesAtTheStartOfBlocks: false
+EmptyLineBeforeAccessModifier: Never
+SeparateDefinitionBlocks: Leave
