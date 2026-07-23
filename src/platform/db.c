@@ -116,14 +116,15 @@ static void deserialize_subscriptions(BrokerProfile* profile, const char* subs_t
 
     int n = cJSON_GetArraySize(arr);
     profile->subscription_count = 0;
-    for (int i = 0; i < n && i < MAX_PROFILE_SUBS; i++) {
+    for (int i = 0; i < n && profile->subscription_count < MAX_PROFILE_SUBS; i++) {
         cJSON* item = cJSON_GetArrayItem(arr, i);
         const char* topic = cJSON_GetStringValue(cJSON_GetObjectItem(item, "topic"));
         cJSON* qos_obj = cJSON_GetObjectItem(item, "qos");
         if (topic) {
-            strncpy(profile->subscriptions[i].topic, topic, sizeof(profile->subscriptions[i].topic) - 1);
-            profile->subscriptions[i].topic[sizeof(profile->subscriptions[i].topic) - 1] = '\0';
-            profile->subscriptions[i].qos = qos_obj ? (uint8_t)qos_obj->valueint : 0;
+            ProfileSubscription* sub = &profile->subscriptions[profile->subscription_count];
+            strncpy(sub->topic, topic, sizeof(sub->topic) - 1);
+            sub->topic[sizeof(sub->topic) - 1] = '\0';
+            sub->qos = qos_obj ? (uint8_t)qos_obj->valueint : 0;
             profile->subscription_count++;
         }
     }
@@ -333,8 +334,11 @@ bool db_save_messages(Db* db, const MessageRecord* records, int count) {
     for (int i = 0; i < count; i++) {
         const MessageRecord* r = &records[i];
         sqlite3_bind_text(stmt, 1, r->topic, -1, SQLITE_STATIC);
-        // payload is not owned by MessageRecord; store NULL
-        sqlite3_bind_null(stmt, 2);
+        if (r->preview[0] != '\0') {
+            sqlite3_bind_text(stmt, 2, r->preview, -1, SQLITE_STATIC);
+        } else {
+            sqlite3_bind_null(stmt, 2);
+        }
         sqlite3_bind_int(stmt, 3, r->qos);
         sqlite3_bind_int(stmt, 4, r->retained ? 1 : 0);
         sqlite3_bind_int64(stmt, 5, (sqlite3_int64)r->timestamp_us);
@@ -362,7 +366,7 @@ bool db_save_messages(Db* db, const MessageRecord* records, int count) {
 int db_load_messages(Db* db, MessageRecord* records, int max_count) {
     if (!db || !records || max_count <= 0) return 0;
 
-    const char* sql = "SELECT topic, qos, retained, timestamp_us, broker_id"
+    const char* sql = "SELECT topic, qos, retained, timestamp_us, broker_id, payload"
                       " FROM messages"
                       " ORDER BY timestamp_us DESC"
                       " LIMIT ?1;";
@@ -390,8 +394,13 @@ int db_load_messages(Db* db, MessageRecord* records, int max_count) {
         r->retained = sqlite3_column_int(stmt, 2) != 0;
         r->timestamp_us = (uint64_t)sqlite3_column_int64(stmt, 3);
         r->broker_id = (uint32_t)sqlite3_column_int64(stmt, 4);
+        const char* preview = (const char*)sqlite3_column_text(stmt, 5);
+        if (preview) {
+            strncpy(r->preview, preview, sizeof(r->preview) - 1);
+            r->preview[sizeof(r->preview) - 1] = '\0';
+            r->payload_len = (uint32_t)strlen(r->preview);
+        }
         r->payload = NULL;
-        r->payload_len = 0;
         count++;
     }
 

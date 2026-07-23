@@ -58,7 +58,8 @@ bool db_set_setting(Db* db, const char* key, const char* value);
 const char* db_get_setting(Db* db, const char* key, const char* fallback);
 
 /**
- * @brief Persist an array of message records. Payload content is not stored.
+ * @brief Persist an array of message records. The sanitized preview is stored
+ *        as the payload column; the raw payload pointer is never dereferenced.
  * @param records  Array of records to insert.
  * @param count    Number of records in @p records.
  * @return true on success.

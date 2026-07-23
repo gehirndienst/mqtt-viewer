@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define MSG_PREVIEW_LEN 4096
+#define MSG_PREVIEW_LEN 512
 
 typedef struct {
     uint64_t timestamp_us;
