@@ -8,6 +8,7 @@
 #include "raylib.h"
 
 #include "model/app_state.h"
+#include "ui/text_input.h"
 #include "ui/theme.h"
 #include "ui/tree_widget.h"
 
@@ -243,6 +244,7 @@ void tree_widget_render(AppState* state) {
                 state->topic_filter[len + 1] = '\0';
             }
         }
+        text_input_handle_paste(state->topic_filter, sizeof(state->topic_filter), false);
     } else if (!state->publish_panel_open && !state->profile_dialog_open) {
         // Drain GetCharPressed so characters don't accumulate when no panel uses them
         while (GetCharPressed() != 0) {}

@@ -14,6 +14,7 @@
 #include "model/broker_profile.h"
 #include "platform/db.h"
 #include "ui/profile_dialog.h"
+#include "ui/text_input.h"
 #include "ui/theme.h"
 
 
@@ -313,6 +314,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                     ft.buf[len + 1] = '\0';
                 }
             }
+            text_input_handle_paste(ft.buf, ft.max, false);
             bool ctrl_down = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
             if (ctrl_down && (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE))) {
                 ft.buf[0] = '\0';

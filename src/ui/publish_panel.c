@@ -10,6 +10,7 @@
 
 #include "model/connection_log.h"
 #include "ui/publish_panel.h"
+#include "ui/text_input.h"
 #include "ui/theme.h"
 
 #define PP_BUF_COUNT 32
@@ -57,6 +58,11 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
                     state->publish_payload[len + 1] = '\0';
                 }
             }
+        }
+        if (state->publish_active_field == 0) {
+            text_input_handle_paste(state->publish_topic, sizeof(state->publish_topic), false);
+        } else {
+            text_input_handle_paste(state->publish_payload, sizeof(state->publish_payload), true);
         }
         bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
         if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) {
