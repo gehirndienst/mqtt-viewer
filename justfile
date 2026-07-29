@@ -5,6 +5,23 @@
 _default:
     @just --list
 
+_compile dir *setup_args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -d {{dir}} ]; then
+        meson setup {{dir}} {{setup_args}}
+    fi
+    log=$(mktemp)
+    trap 'rm -f "$log"' EXIT
+    if ! meson compile -C {{dir}} 2>&1 | tee "$log"; then
+        if grep -q "file not found" "$log"; then
+            meson setup --wipe {{dir}}
+            meson compile -C {{dir}}
+        else
+            exit 1
+        fi
+    fi
+
 # Build the project. No flag build debugoptimized build, --debug builds debug build, --release builds release build
 [arg("dbg", long="debug", value="debug")]
 [arg("rel", long="release", value="release")]
@@ -12,14 +29,11 @@ build dbg='' rel='':
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -n "{{dbg}}" ]; then
-        if [ ! -d builddir-debug ]; then meson setup builddir-debug --buildtype=debug; fi
-        meson compile -C builddir-debug
+        just _compile builddir-debug --buildtype=debug
     elif [ -n "{{rel}}" ]; then
-        if [ ! -d builddir-release ]; then meson setup builddir-release --buildtype=release; fi
-        meson compile -C builddir-release
+        just _compile builddir-release --buildtype=release
     else
-        if [ ! -d builddir ]; then meson setup builddir --buildtype=debugoptimized; fi
-        meson compile -C builddir
+        just _compile builddir --buildtype=debugoptimized
     fi
 
 # Run all tests (uses the default build)
@@ -87,7 +101,7 @@ release version push='':
     fi
     meson rewrite -s . kwargs set project / version '{{version}}'
     git add meson.build
-    git commit -m "chore: bump version to {{version}}"
+    git commit -m "bumped version to {{version}}"
     git tag -a "v{{version}}" -m "Release v{{version}}"
     if [[ -n "{{push}}" ]]; then
         git push && git push --tags
@@ -100,10 +114,7 @@ release version push='':
 package target='':
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -d builddir-release-static ]; then
-        meson setup builddir-release-static --buildtype=release --wrap-mode=forcefallback --default-library=static
-    fi
-    meson compile -C builddir-release-static
+    just _compile builddir-release-static --buildtype=release --wrap-mode=forcefallback --default-library=static
     case "{{target}}" in
         macos) bash packaging/build-dmg.sh ;;
         linux) bash packaging/build-deb.sh ;;
