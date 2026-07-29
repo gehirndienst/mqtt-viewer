@@ -43,3 +43,10 @@ test_sub = executable('test_subscription',
     include_directories : test_inc
 )
 test('subscription', test_sub)
+
+test_textinput = executable('test_text_input',
+    'test_text_input.c',
+    include_directories : test_inc,
+    dependencies : raylib_dep.partial_dependency(compile_args : true, includes : true)
+)
+test('text_input', test_textinput)
