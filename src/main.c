@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,11 @@
 #include "ui/tree_widget.h"
 
 int main(void) {
+    // NOTE: libmosquitto may write to a broker socket that is already closed (e.g. the TLS shutdown handshake right
+    // after a user-initiated disconnect). macOS delivers SIGPIPE for that write, which kills the process with no
+    // crash report. Errors are handled via the write's EPIPE return instead
+    signal(SIGPIPE, SIG_IGN);
+
     // Raylib + font + Clay init
     UiCtx ui_ctx;
     if (!ui_init(&ui_ctx)) return 1;
@@ -162,8 +168,17 @@ int main(void) {
             MqttMessage* m = &msgs[i];
             TopicNode* node = topic_tree_insert(&state.topic_tree, m->topic);
             if (node) {
-                node->message_count++;
+                topic_node_count_message(node);
                 node->last_message_ts = m->timestamp_us;
+
+                for (TopicNode* anc = node; anc; anc = anc->parent) {
+                    if (anc->subtree_message_count == 1 ||
+                        (m->timestamp_us - anc->last_subtree_display_update_us) >= ui_tick_us) {
+                        anc->last_subtree_display_update_us = m->timestamp_us;
+                        snprintf(anc->subtree_count_str, sizeof(anc->subtree_count_str), "\xce\xa3 %u",
+                                 anc->subtree_message_count);
+                    }
+                }
                 if (node == state.selected_topic) s_tpt_acc += 1.0f;
                 node->last_payload_len = m->payload_len;
                 node->last_qos = m->qos;

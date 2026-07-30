@@ -155,7 +155,31 @@ static void render_node(AppState* state, TopicNode* node, int depth) {
                                       CLAY_TEXT_CONFIG({
                                           .fontSize = 11,
                                           .fontId = FONT_MONO,
-                                          .textColor = THEME_ACCENT_BLUE,
+                                          .textColor = THEME_ACCENT_BLUE_BRIGHT,
+                                      }));
+                        }
+                    }
+                    // Subtree total badge- sum of messages on this node and every descendant
+                    // Only meaningful for parents; for leaves it would duplicate the own-count badge
+                    if (has_children && node->subtree_message_count > 0) {
+                        char sb[128];
+                        snprintf(sb, sizeof(sb), "sb_%p", (void*)node);
+                        Clay_String sbcs = {.length = (int32_t)strlen(sb), .chars = sb};
+                        Clay_String sum_str = {
+                            .length = (int32_t)strlen(node->subtree_count_str),
+                            .chars = node->subtree_count_str,
+                        };
+                        CLAY(CLAY_SID(sbcs),
+                             {
+                                 .layout = {.padding = {6, 6, 2, 2}},
+                                 .backgroundColor = THEME_BG_BADGE,
+                                 .cornerRadius = CLAY_CORNER_RADIUS(3),
+                             }) {
+                            CLAY_TEXT(sum_str,
+                                      CLAY_TEXT_CONFIG({
+                                          .fontSize = 11,
+                                          .fontId = FONT_MONO,
+                                          .textColor = THEME_LIGHT_BLUE,
                                       }));
                         }
                     }

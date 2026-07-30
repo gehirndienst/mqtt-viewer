@@ -45,6 +45,7 @@ static void build_codepoints(void) {
 
     // additional Unicode symbols used in the UI
     static const int extras[] = {
+        0x03A3, // Σ GREEK CAPITAL SIGMA - subtree message-count badge
         0x2022, // • BULLET - password mask
         0x2500, // ─ BOX LIGHT HORIZ - context menu separator
         0x25B2, // ▲ UP TRIANGLE - Publish button label

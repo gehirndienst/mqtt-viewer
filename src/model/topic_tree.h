@@ -17,6 +17,7 @@ typedef struct TopicNode {
     struct TopicNode* children[TOPIC_MAX_CHILDREN];
     uint32_t child_count;
     uint32_t message_count;
+    uint32_t subtree_message_count;
     bool has_retained;
     bool expanded; // UI state: tree node expanded
     uint64_t last_message_ts; // microseconds
@@ -24,7 +25,9 @@ typedef struct TopicNode {
     uint8_t last_qos;
     char last_payload_preview[TOPIC_PREVIEW_LEN];
     char msg_count_str[16];
+    char subtree_count_str[16];
     uint64_t last_display_update_us;
+    uint64_t last_subtree_display_update_us;
     float throughput; // computed by main.c for selected topic
 } TopicNode;
 
@@ -62,6 +65,14 @@ TopicNode* topic_tree_insert(TopicTree* tree, const char* topic);
  * @return Pointer to the leaf TopicNode, or NULL if not found.
  */
 TopicNode* topic_tree_find(const TopicTree* tree, const char* topic);
+
+/**
+ * @brief Record one received message on @p node.
+ *
+ * Increments the node's own message_count and the subtree_message_count
+ * of the node and every ancestor up to the root.
+ */
+void topic_node_count_message(TopicNode* node);
 
 /** @brief Total number of leaf and intermediate nodes. */
 uint32_t topic_tree_count(const TopicTree* tree);

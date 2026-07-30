@@ -25,10 +25,12 @@ static TopicNode* node_new(TopicTree* tree, const char* segment, TopicNode* pare
     node->parent = parent;
     node->child_count = 0;
     node->message_count = 0;
+    node->subtree_message_count = 0;
     node->has_retained = false;
     node->expanded = false;
     node->last_message_ts = 0;
     node->last_payload_preview[0] = '\0';
+    node->subtree_count_str[0] = '\0';
     node->throughput = 0.0f;
     tree->total_count++;
     return node;
@@ -106,6 +108,13 @@ TopicNode* topic_tree_find(const TopicTree* tree, const char* topic) {
 
 uint32_t topic_tree_count(const TopicTree* tree) {
     return tree->total_count;
+}
+
+void topic_node_count_message(TopicNode* node) {
+    node->message_count++;
+    for (TopicNode* n = node; n; n = n->parent) {
+        n->subtree_message_count++;
+    }
 }
 
 void topic_node_full_path(const TopicNode* node, char* buf, size_t buf_size) {

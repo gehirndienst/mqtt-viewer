@@ -74,6 +74,7 @@ The packaged binary statically links raylib and SQLite; `libmosquitto` and `libc
 - Windows port
 - message replay - re-publish a recorded history slice with original timing
 - mTLS client-certificate authentication
+- proxied connections
 
 ## License
 

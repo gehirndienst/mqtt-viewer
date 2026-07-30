@@ -96,6 +96,45 @@ TEST(insert_multiple_roots) {
     topic_tree_destroy(&tree);
 }
 
+TEST(count_message_bumps_node_and_ancestors) {
+    TopicTree tree;
+    topic_tree_init(&tree, 256);
+    TopicNode* leaf1 = topic_tree_insert(&tree, "home/kitchen/temp");
+    TopicNode* leaf2 = topic_tree_insert(&tree, "home/kitchen/hum");
+    TopicNode* leaf3 = topic_tree_insert(&tree, "home/hall/temp");
+    TopicNode* home = topic_tree_find(&tree, "home");
+    TopicNode* kitchen = topic_tree_find(&tree, "home/kitchen");
+
+    topic_node_count_message(leaf1);
+    topic_node_count_message(leaf1);
+    topic_node_count_message(leaf2);
+    topic_node_count_message(leaf3);
+
+    ASSERT_EQ(leaf1->message_count, 2);
+    ASSERT_EQ(leaf1->subtree_message_count, 2);
+    ASSERT_EQ(leaf2->subtree_message_count, 1);
+    ASSERT_EQ(kitchen->message_count, 0);
+    ASSERT_EQ(kitchen->subtree_message_count, 3);
+    ASSERT_EQ(home->message_count, 0);
+    ASSERT_EQ(home->subtree_message_count, 4);
+    topic_tree_destroy(&tree);
+}
+
+TEST(count_message_on_intermediate_node) {
+    TopicTree tree;
+    topic_tree_init(&tree, 256);
+    topic_tree_insert(&tree, "a/b/c");
+    TopicNode* b = topic_tree_find(&tree, "a/b");
+    TopicNode* a = topic_tree_find(&tree, "a");
+
+    topic_node_count_message(b);
+
+    ASSERT_EQ(b->message_count, 1);
+    ASSERT_EQ(b->subtree_message_count, 1);
+    ASSERT_EQ(a->subtree_message_count, 1);
+    topic_tree_destroy(&tree);
+}
+
 int main(void) {
     printf("topic_tree tests:\n");
     RUN(create_and_destroy);
@@ -107,6 +146,8 @@ int main(void) {
     RUN(find_intermediate);
     RUN(get_full_topic);
     RUN(insert_multiple_roots);
+    RUN(count_message_bumps_node_and_ancestors);
+    RUN(count_message_on_intermediate_node);
     printf("All topic_tree tests passed\n");
     return 0;
 }

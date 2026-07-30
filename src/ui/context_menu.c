@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "clay.h"
@@ -234,7 +235,7 @@ void context_menu_render(AppState* state) {
         }
     }
 
-    // Apply deferred actions
+    // deferred actions
     if (do_copy) {
         static char full_path[512];
         topic_node_full_path(state->context_menu_target, full_path, sizeof(full_path));
@@ -256,6 +257,15 @@ void context_menu_render(AppState* state) {
     }
     if (do_clear) {
         TopicNode* n = state->context_menu_target;
+        uint32_t cleared = n->message_count;
+        for (TopicNode* p = n; p; p = p->parent) {
+            p->subtree_message_count -= cleared;
+            if (p->subtree_message_count > 0) {
+                snprintf(p->subtree_count_str, sizeof(p->subtree_count_str), "\xce\xa3 %u", p->subtree_message_count);
+            } else {
+                p->subtree_count_str[0] = '\0';
+            }
+        }
         n->message_count = 0;
         n->msg_count_str[0] = '\0';
         n->last_payload_preview[0] = '\0';

@@ -27,6 +27,7 @@
 
 // Accent colors
 #define THEME_ACCENT_BLUE (Clay_Color){102, 102, 255, 255} // #6666ff
+#define THEME_ACCENT_BLUE_BRIGHT (Clay_Color){200, 200, 255, 255} // #c8c8ff - badge text on dark badge bg
 #define THEME_GREEN (Clay_Color){102, 204, 102, 255} // #66cc66
 #define THEME_ORANGE (Clay_Color){255, 136, 0, 255} // #ff8800
 #define THEME_CYAN (Clay_Color){0, 170, 255, 255} // #00aaff
