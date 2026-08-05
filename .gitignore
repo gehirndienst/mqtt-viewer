@@ -13,3 +13,4 @@ subprojects/raylib-*/
 subprojects/sqlite-*/
 .DS_Store
 docs/*
+tests/env
