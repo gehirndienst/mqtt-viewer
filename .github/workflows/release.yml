@@ -46,9 +46,10 @@ jobs:
         wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 19
         sudo apt-get update
         sudo apt-get install -y \
-          meson ninja-build libmosquitto-dev libcjson-dev \
+          ninja-build libmosquitto-dev libcjson-dev \
           libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
           libgl1-mesa-dev libwayland-dev libxkbcommon-dev
+        pipx install meson
         echo "CC=clang-19" >> "$GITHUB_ENV"
 
     - name: Build static release
