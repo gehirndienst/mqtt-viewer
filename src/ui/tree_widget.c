@@ -230,8 +230,8 @@ static void render_node(AppState* state, TopicNode* node, int depth) {
                 // Anywhere else on the node row - open inspector
                 state->selected_topic = node;
             } else if (has_children) {
-                // Parent-only node: click anywhere toggles expand
-                node->expanded = !node->expanded;
+                state->selected_topic = node;
+                if (!node->expanded) node->expanded = true;
             }
         }
         if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {

@@ -61,7 +61,6 @@ void menu_bar_render(AppState* state) {
                           .textColor = state->log_panel_open ? THEME_TEXT_PRIMARY : THEME_TEXT_SECONDARY,
                       }));
         }
-
         CLAY(CLAY_ID("MenuBarSpacer"), {.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}}}) {}
 
         if (broker_buf[0] != '\0') {
