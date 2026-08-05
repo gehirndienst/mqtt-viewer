@@ -71,10 +71,24 @@ jobs:
       if: runner.os == 'Linux'
       run: bash packaging/build-deb.sh
 
+    - name: Extract changelog section
+      shell: bash
+      run: |
+        VERSION="${GITHUB_REF_NAME#v}"
+        awk -v ver="$VERSION" '
+          $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+          found && /^## / { exit }
+          found { print }
+        ' CHANGELOG.md > release-notes.md
+        if [ ! -s release-notes.md ]; then
+          echo "No CHANGELOG.md section for $VERSION" >&2
+          exit 1
+        fi
+
     - name: Upload release assets
       uses: softprops/action-gh-release@v2
       with:
         files: |
           packaging/*.dmg
           packaging/*.deb
-        generate_release_notes: true
+        body_path: release-notes.md

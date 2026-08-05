@@ -68,7 +68,7 @@ The packaged binary statically links raylib and SQLite; `libmosquitto` and `libc
 
 ## Roadmap
 
-- packaged releases for macOS and Linux
+~~- packaged releases for macOS and Linux~~
 - export message history to CSV
 - wasm build
 - Windows port
