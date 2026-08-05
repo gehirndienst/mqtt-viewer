@@ -23,7 +23,7 @@ void status_bar_render(AppState* state) {
                  (unsigned long)state->total_messages, state->msgs_per_sec);
         for (int i = 0; i < show_count; i++) {
             Subscription* sub = &state->subscriptions[i];
-            snprintf(sub_stats[i], sizeof(sub_stats[i]), "| sub %s: %llu msgs \xc2\xb7 %.1f/s", sub->topic_filter,
+            snprintf(sub_stats[i], sizeof(sub_stats[i]), " | sub %s: %llu msgs \xc2\xb7 %.1f/s", sub->topic_filter,
                      (unsigned long long)sub->message_count, sub->throughput);
         }
     }
@@ -45,6 +45,14 @@ void status_bar_render(AppState* state) {
 
         if (show_count > 0) {
             for (int i = 0; i < show_count; i++) {
+                char div_id[16];
+                snprintf(div_id, sizeof(div_id), "SBDiv_%d", i);
+                Clay_String div_id_cs = {.length = (int32_t)strlen(div_id), .chars = div_id};
+                CLAY(CLAY_SID(div_id_cs),
+                     {
+                         .layout = {.sizing = {CLAY_SIZING_FIXED(1), CLAY_SIZING_FIXED(12)}},
+                         .backgroundColor = THEME_BORDER,
+                     }) {}
                 Clay_String ss = {.length = (int32_t)strlen(sub_stats[i]), .chars = sub_stats[i]};
                 CLAY_TEXT(ss, THEME_TEXT_SMALL);
             }
