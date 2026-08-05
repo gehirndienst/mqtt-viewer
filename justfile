@@ -69,7 +69,7 @@ docs:
 
 # Remove all build artefacts and tear down the test environment
 clean:
-    just testenv-clean
+    just testenv-stop
     rm -rf builddir builddir-debug builddir-release builddir-release-static packaging/staging
 
 # Download wrap dependencies into subprojects/packagecache/ (requires network)
@@ -193,7 +193,7 @@ testenv only='':
     fi
 
 # Stop the telemetry pusher + test broker and delete the test DB
-testenv-clean:
+testenv-stop:
     -[ -f tests/env/pusher.pid ] && kill "$(cat tests/env/pusher.pid)" 2>/dev/null
     -pkill -f "mosquitto -p 1889"
     rm -f tests/env/pusher.pid tests/env/test.db tests/env/test.db-shm tests/env/test.db-wal
