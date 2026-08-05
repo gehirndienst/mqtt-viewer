@@ -47,7 +47,6 @@ static void build_codepoints(void) {
     static const int extras[] = {
         0x03A3, // Σ GREEK CAPITAL SIGMA - subtree message-count badge
         0x2022, // • BULLET - password mask
-        0x2500, // ─ BOX LIGHT HORIZ - context menu separator
         0x25B2, // ▲ UP TRIANGLE - Publish button label
         0x25B8, // ▸ SMALL RIGHT TRI - tree node collapsed
         0x25BE, // ▾ SMALL DOWN TRI - tree node expanded
@@ -59,15 +58,15 @@ static void build_codepoints(void) {
 }
 
 bool ui_init(UiCtx* ctx) {
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
     InitWindow(1280, 800, "MQTT Viewer");
     SetExitKey(KEY_NULL);
     SetWindowMinSize(960, 640);
 
     build_codepoints();
-    s_fonts[FONT_DEFAULT] = LoadFontFromMemory(".ttf", s_font_default_data, (int)sizeof(s_font_default_data), 20,
+    s_fonts[FONT_DEFAULT] = LoadFontFromMemory(".ttf", s_font_default_data, (int)sizeof(s_font_default_data), 40,
                                                s_codepoints, s_codepoint_count);
-    s_fonts[FONT_MONO] = LoadFontFromMemory(".ttf", s_font_mono_data, (int)sizeof(s_font_mono_data), 20, s_codepoints,
+    s_fonts[FONT_MONO] = LoadFontFromMemory(".ttf", s_font_mono_data, (int)sizeof(s_font_mono_data), 40, s_codepoints,
                                             s_codepoint_count);
     SetTextureFilter(s_fonts[FONT_DEFAULT].texture, TEXTURE_FILTER_BILINEAR);
     SetTextureFilter(s_fonts[FONT_MONO].texture, TEXTURE_FILTER_BILINEAR);
