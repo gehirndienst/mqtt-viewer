@@ -1,11 +1,8 @@
-project('mqtt-viewer', 'c',
-    version : '1.0.0',
-    default_options : [
-        'c_std=c23',
-        'warning_level=3',
-        'werror=true',
-        'sqlite3:werror=false',
-    ]
+project(
+  'mqtt-viewer',
+  'c',
+version : '1.0.1',
+  default_options : ['c_std=c23', 'warning_level=3', 'werror=true', 'sqlite3:werror=false']
 )
 
 cc = meson.get_compiler('c')
