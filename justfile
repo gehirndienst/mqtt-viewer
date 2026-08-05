@@ -46,7 +46,7 @@ test:
 run dbg='' rel='':
     #!/usr/bin/env bash
     set -euo pipefail
-    export MQTT_VIEWER_DB=mqtt_viewer.db
+    export MQTT_VIEWER_DB_PATH="${MQTT_VIEWER_DB_PATH:-mqtt_viewer.db}"
     if [ -n "{{dbg}}" ]; then
         just build --debug
         ./builddir-debug/mqtt-viewer
@@ -67,8 +67,9 @@ docs:
     doxygen Doxyfile
     @echo "Docs written to docs/doxygen/html/index.html"
 
-# Remove all build artefacts
+# Remove all build artefacts and tear down the test environment
 clean:
+    just testenv-clean
     rm -rf builddir builddir-debug builddir-release builddir-release-static packaging/staging
 
 # Download wrap dependencies into subprojects/packagecache/ (requires network)
@@ -126,3 +127,73 @@ package target='':
             fi ;;
         *) echo "Unknown target '{{target}}'" >&2; exit 1 ;;
     esac
+
+# Start a test broker on :1889, seed tests/env/test.db, publish sample traffic, then run the app against it (--only-env to skip the run)
+[arg("only", long="only-env", value="yes")]
+testenv only='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for tool in mosquitto mosquitto_pub sqlite3; do
+        command -v "$tool" >/dev/null || { echo "$tool not found (install mosquitto + sqlite3 via brew or apt)" >&2; exit 1; }
+    done
+    mkdir -p tests/env
+    if ! pgrep -f "mosquitto -p 1889" >/dev/null; then
+        mosquitto -p 1889 -d
+        sleep 0.3
+    fi
+    if [ ! -f tests/env/test.db ]; then
+        sqlite3 tests/env/test.db <<'SQL'
+    CREATE TABLE IF NOT EXISTS profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        host TEXT NOT NULL,
+        port INTEGER DEFAULT 1883,
+        protocol_version INTEGER DEFAULT 311,
+        client_id TEXT DEFAULT '',
+        clean_session INTEGER DEFAULT 1,
+        keepalive_secs INTEGER DEFAULT 60,
+        username TEXT DEFAULT '',
+        password TEXT DEFAULT '',
+        tls_ca_cert TEXT DEFAULT '',
+        tls_client_cert TEXT DEFAULT '',
+        tls_client_key TEXT DEFAULT '',
+        tls_version INTEGER DEFAULT 13,
+        tls_verify INTEGER DEFAULT 1,
+        subscriptions TEXT DEFAULT '[{"topic":"#","qos":1}]'
+    );
+    INSERT INTO profiles (name, host, port, tls_version) VALUES ('testenv-local', 'localhost', 1889, 0);
+    SQL
+    fi
+    pub() { mosquitto_pub -h localhost -p 1889 "$@"; }
+    pub -t home/livingroom/light -r -m on
+    pub -t home/kitchen/light -r -m off
+    pub -t home/kitchen/fridge/door -m closed
+    pub -t cars/car1/battery -m '{"soc":81,"health":"good"}'
+    pub -t cars/car2/battery -m '{"soc":47,"health":"fair"}'
+    if [ ! -f tests/env/pusher.pid ] || ! kill -0 "$(cat tests/env/pusher.pid)" 2>/dev/null; then
+        (
+            while :; do
+                pub -t sensors/temp -q 1 -m "{\"v\":$((20 + RANDOM % 8)).$((RANDOM % 10))}" || break
+                pub -t sensors/hum -m "{\"v\":$((40 + RANDOM % 20))}" || break
+                pub -t factory/line1/temp -m "{\"v\":$((60 + RANDOM % 15)).$((RANDOM % 10))}" || break
+                pub -t factory/line1/rpm -m "$((1400 + RANDOM % 200))" || break
+                pub -t factory/line2/temp -m "{\"v\":$((55 + RANDOM % 20)).$((RANDOM % 10))}" || break
+                pub -t cars/car1/speed -m "$((RANDOM % 130))" || break
+                sleep 0.5
+            done
+        ) >/dev/null 2>&1 &
+        echo "$!" > tests/env/pusher.pid
+    fi
+    echo "test broker on :1889, profile 'testenv-local', telemetry pusher running (pid $(cat tests/env/pusher.pid))"
+    if [ -z "{{only}}" ]; then
+        just build
+        # background jobs ignore SIGINT - kill the pusher ourselves when the app run ends (Ctrl+C included)
+        trap 'kill "$(cat tests/env/pusher.pid 2>/dev/null)" 2>/dev/null || true; rm -f tests/env/pusher.pid' EXIT INT TERM
+        MQTT_VIEWER_DB_PATH=tests/env/test.db ./builddir/mqtt-viewer || { ec=$?; [ "$ec" -eq 130 ] || exit "$ec"; }
+    fi
+
+# Stop the telemetry pusher + test broker and delete the test DB
+testenv-clean:
+    -[ -f tests/env/pusher.pid ] && kill "$(cat tests/env/pusher.pid)" 2>/dev/null
+    -pkill -f "mosquitto -p 1889"
+    rm -f tests/env/pusher.pid tests/env/test.db tests/env/test.db-shm tests/env/test.db-wal
