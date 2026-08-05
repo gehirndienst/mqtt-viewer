@@ -1,0 +1,80 @@
+name: release
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - os: macos-latest
+          artifact: macos-arm64
+        - os: ubuntu-24.04
+          artifact: linux-amd64
+        - os: ubuntu-24.04-arm
+          artifact: linux-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Check tag matches meson version
+      shell: bash
+      run: |
+        MESON_VERSION=$(grep -m1 -E "version\s*:" meson.build | grep -oE "[0-9]+\.[0-9]+\.[0-9]+")
+        TAG_VERSION="${GITHUB_REF_NAME#v}"
+        if [ "$MESON_VERSION" != "$TAG_VERSION" ]; then
+          echo "Tag $GITHUB_REF_NAME does not match meson.build version $MESON_VERSION" >&2
+          exit 1
+        fi
+
+    - name: Install deps macOS
+      if: runner.os == 'macOS'
+      run: |
+        brew install llvm meson ninja mosquitto cjson dylibbundler
+        echo "CC=$(brew --prefix llvm)/bin/clang" >> "$GITHUB_ENV"
+
+    - name: Install deps Linux
+      if: runner.os == 'Linux'
+      run: |
+        wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s -- 19
+        sudo apt-get update
+        sudo apt-get install -y \
+          meson ninja-build libmosquitto-dev libcjson-dev \
+          libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
+          libgl1-mesa-dev libwayland-dev libxkbcommon-dev
+        echo "CC=clang-19" >> "$GITHUB_ENV"
+
+    - name: Build static release
+      run: |
+        meson setup builddir-release-static --buildtype=release --wrap-mode=forcefallback --default-library=static
+        meson compile -C builddir-release-static
+
+    - name: Test
+      run: meson test -C builddir-release-static -v
+
+    - name: Package .dmg
+      if: runner.os == 'macOS'
+      run: |
+        bash packaging/build-dmg.sh
+        for f in packaging/*.dmg; do
+          mv "$f" "${f%.dmg}-${{ matrix.artifact }}.dmg"
+        done
+
+    - name: Package .deb
+      if: runner.os == 'Linux'
+      run: bash packaging/build-deb.sh
+
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          packaging/*.dmg
+          packaging/*.deb
+        generate_release_notes: true
