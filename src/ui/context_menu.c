@@ -39,8 +39,6 @@ void context_menu_render(AppState* state) {
     // Menu item label strings - must be in static storage for CLAY_TEXT
     static const char* label_copy = "Copy Topic Path";
     static const char* label_publish = "Publish to This Topic";
-    static const char* label_sep =
-        "\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80";
     static const char* label_expand = "Expand All";
     static const char* label_collapse = "Collapse All";
     static const char* label_clear = "Clear History";
@@ -113,13 +111,11 @@ void context_menu_render(AppState* state) {
                          .padding = {12, 12, 3, 3},
                      },
              }) {
-            Clay_String lbl = {.length = (int32_t)strlen(label_sep), .chars = label_sep};
-            CLAY_TEXT(lbl,
-                      CLAY_TEXT_CONFIG({
-                          .fontSize = 11,
-                          .fontId = FONT_DEFAULT,
-                          .textColor = THEME_TEXT_DIM,
-                      }));
+            CLAY(CLAY_ID("CMSep1Line"),
+                 {
+                     .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1)}},
+                     .backgroundColor = THEME_BORDER,
+                 }) {}
         }
 
         // Expand All
@@ -171,13 +167,11 @@ void context_menu_render(AppState* state) {
                          .padding = {12, 12, 3, 3},
                      },
              }) {
-            Clay_String lbl = {.length = (int32_t)strlen(label_sep), .chars = label_sep};
-            CLAY_TEXT(lbl,
-                      CLAY_TEXT_CONFIG({
-                          .fontSize = 11,
-                          .fontId = FONT_DEFAULT,
-                          .textColor = THEME_TEXT_DIM,
-                      }));
+            CLAY(CLAY_ID("CMSep2Line"),
+                 {
+                     .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIXED(1)}},
+                     .backgroundColor = THEME_BORDER,
+                 }) {}
         }
 
         // Clear History
