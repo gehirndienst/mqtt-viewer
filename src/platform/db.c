@@ -9,6 +9,7 @@
 #include <cjson/cJSON.h>
 #include <sqlite3.h>
 
+#include "model/alloc.h"
 #include "platform/db.h"
 #include "platform/log.h"
 
@@ -334,8 +335,8 @@ bool db_save_messages(Db* db, const MessageRecord* records, int count) {
     for (int i = 0; i < count; i++) {
         const MessageRecord* r = &records[i];
         sqlite3_bind_text(stmt, 1, r->topic, -1, SQLITE_STATIC);
-        if (r->preview[0] != '\0') {
-            sqlite3_bind_text(stmt, 2, r->preview, -1, SQLITE_STATIC);
+        if (r->payload != NULL && r->payload_len > 0) {
+            sqlite3_bind_blob(stmt, 2, r->payload, (int)r->payload_len, SQLITE_STATIC);
         } else {
             sqlite3_bind_null(stmt, 2);
         }
@@ -394,13 +395,19 @@ int db_load_messages(Db* db, MessageRecord* records, int max_count) {
         r->retained = sqlite3_column_int(stmt, 2) != 0;
         r->timestamp_us = (uint64_t)sqlite3_column_int64(stmt, 3);
         r->broker_id = (uint32_t)sqlite3_column_int64(stmt, 4);
-        const char* preview = (const char*)sqlite3_column_text(stmt, 5);
-        if (preview) {
-            strncpy(r->preview, preview, sizeof(r->preview) - 1);
-            r->preview[sizeof(r->preview) - 1] = '\0';
-            r->payload_len = (uint32_t)strlen(r->preview);
+        const void* blob = sqlite3_column_blob(stmt, 5);
+        int blob_len = sqlite3_column_bytes(stmt, 5);
+        if (blob != NULL && blob_len > 0) {
+            r->payload = alloc_check(malloc((size_t)blob_len));
+            memcpy(r->payload, blob, (size_t)blob_len);
+            r->payload_len = (uint32_t)blob_len;
+            uint32_t prev_len = r->payload_len < MSG_PREVIEW_LEN - 1 ? r->payload_len : MSG_PREVIEW_LEN - 1;
+            for (uint32_t pi = 0; pi < prev_len; pi++) {
+                unsigned char c = r->payload[pi];
+                r->preview[pi] = (c < 0x20 || c == 0x7f) ? ' ' : (char)c;
+            }
+            r->preview[prev_len] = '\0';
         }
-        r->payload = NULL;
         count++;
     }
 
@@ -434,7 +441,7 @@ bool db_trim_messages(Db* db, int max_rows) {
 }
 
 void db_resolve_path(char* out, size_t out_size) {
-    const char* override = getenv("MQTT_VIEWER_DB");
+    const char* override = getenv("MQTT_VIEWER_DB_PATH");
     if (override) {
         snprintf(out, out_size, "%s", override);
         return;

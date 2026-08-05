@@ -12,7 +12,7 @@
 typedef struct {
     uint64_t timestamp_us;
     char topic[256]; // full topic path, NUL-terminated owned copy
-    uint8_t* payload; // NOT owned; caller frees after push
+    uint8_t* payload; // owned by the buffer once pushed; NULL when payload_len == 0
     uint32_t payload_len;
     uint8_t qos;
     bool retained;
@@ -35,14 +35,14 @@ typedef struct {
  */
 void message_buf_init(MessageBuf* buf, uint32_t capacity);
 
-/** @brief Free the entries array and reset all fields. */
+/** @brief Free the entries array and reset all fields; free all owned payloads. */
 void message_buf_destroy(MessageBuf* buf);
 
 /**
  * @brief Append a record, evicting the oldest if the buffer is full.
  * @param buf     Buffer handle.
- * @param record  Record to copy in. @p record->payload is not owned by
- *                the buffer; the caller remains responsible for it.
+ * @param record  Record to copy in. The payload bytes are deep-copied; the
+ *                caller keeps ownership of @p record->payload.
  */
 void message_buf_push(MessageBuf* buf, const MessageRecord* record);
 
@@ -55,7 +55,10 @@ const MessageRecord* message_buf_get(const MessageBuf* buf, uint32_t index);
 /** @brief Number of records currently held (≤ capacity). */
 uint32_t message_buf_count(const MessageBuf* buf);
 
-/** @brief Reset count to zero; does not free the entries array. */
+/**
+ * @brief Reset count to zero and free all owned payloads; does not free the
+ *        entries array.
+ */
 void message_buf_clear(MessageBuf* buf);
 
 #endif

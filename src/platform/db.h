@@ -58,8 +58,8 @@ bool db_set_setting(Db* db, const char* key, const char* value);
 const char* db_get_setting(Db* db, const char* key, const char* fallback);
 
 /**
- * @brief Persist an array of message records. The sanitized preview is stored
- *        as the payload column; the raw payload pointer is never dereferenced.
+ * @brief Persist an array of message records. The raw payload bytes are
+ *        stored in the payload BLOB column (NULL when payload is NULL/empty).
  * @param records  Array of records to insert.
  * @param count    Number of records in @p records.
  * @return true on success.
@@ -68,6 +68,10 @@ bool db_save_messages(Db* db, const MessageRecord* records, int count);
 
 /**
  * @brief Load up to @p max_count message records (newest first).
+ *
+ * Each returned record's `payload` is heap-allocated (or NULL if the stored
+ * payload was NULL/empty); the caller owns it and must free() it.
+ *
  * @return Number of records loaded, or -1 on error.
  */
 int db_load_messages(Db* db, MessageRecord* records, int max_count);
@@ -81,7 +85,7 @@ bool db_trim_messages(Db* db, int max_rows);
 /**
  * @brief UTIL: Resolve the platform-appropriate database file path into @p out.
  *
- * Priority: $MQTT_VIEWER_DB- macOS Application Support / XDG data dir.
+ * Priority: $MQTT_VIEWER_DB_PATH - macOS Application Support / XDG data dir.
  * Creates the parent directory if it does not exist.
  * @param out       Destination buffer.
  * @param out_size  Size of @p out in bytes.
