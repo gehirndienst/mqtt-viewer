@@ -23,7 +23,7 @@ void status_bar_render(AppState* state) {
                  (unsigned long)state->total_messages, state->msgs_per_sec);
         for (int i = 0; i < show_count; i++) {
             Subscription* sub = &state->subscriptions[i];
-            snprintf(sub_stats[i], sizeof(sub_stats[i]), "\xc2\xb7 %s \xc2\xb7 %llu msgs \xc2\xb7 %.1f/s",
+            snprintf(sub_stats[i], sizeof(sub_stats[i]), "\xc2\xb7 sub %s: %llu msgs \xc2\xb7 %.1f/s",
                      sub->topic_filter, (unsigned long long)sub->message_count, sub->throughput);
         }
     }
