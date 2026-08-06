@@ -1051,6 +1051,20 @@ void inspector_widget_render(AppState* state) {
                               .wrapMode = CLAY_TEXT_WRAP_NONE,
                           }));
             }
+            // Export history of this topic subtree to CSV
+            CLAY(CLAY_ID("InspectorExportBtn"),
+                 {
+                     .layout = {.padding = {8, 8, 4, 4}},
+                     .backgroundColor = THEME_BG_BUTTON,
+                     .cornerRadius = CLAY_CORNER_RADIUS(3),
+                 }) {
+                CLAY_TEXT(CLAY_STRING("CSV"),
+                          CLAY_TEXT_CONFIG({
+                              .fontSize = 12,
+                              .fontId = FONT_DEFAULT,
+                              .textColor = THEME_TEXT_MUTED,
+                          }));
+            }
             // Diff toggle
             CLAY(CLAY_ID("InspectorDiffToggle"),
                  {
