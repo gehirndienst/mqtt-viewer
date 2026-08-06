@@ -81,6 +81,11 @@ typedef struct {
     float context_menu_x;
     float context_menu_y;
 
+    // CSV export state
+    bool export_requested; // set by the inspector's CSV button; handled in main.c
+    char export_topic[256]; // subtree filter; "" = export all
+    char export_path[1024]; // destination path (auto-resolved)
+
     // Publish panel state
     char publish_topic[256];
     char publish_payload[4096];

@@ -50,3 +50,9 @@ test_textinput = executable('test_text_input',
     dependencies : raylib_dep.partial_dependency(compile_args : true, includes : true)
 )
 test('text_input', test_textinput)
+
+test_csv = executable('test_csv_export',
+    'test_csv_export.c', '../src/model/csv_export.c', '../src/model/message_buf.c',
+    include_directories : test_inc
+)
+test('csv_export', test_csv)

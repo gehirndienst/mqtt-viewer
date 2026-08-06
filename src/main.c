@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+#include <errno.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,9 +9,12 @@
 
 #include "core/mqtt_client.h"
 #include "model/app_state.h"
+#include "model/csv_export.h"
 #include "model/message_buf.h"
 #include "model/subscription.h"
 #include "platform/db.h"
+#include "platform/export_path.h"
+#include "platform/log.h"
 #include "platform/ui.h"
 #include "ui/chart_panel.h"
 #include "ui/context_menu.h"
@@ -77,6 +81,8 @@ int main(void) {
         int loaded = db_load_messages(db, hist_records, 200);
         for (int i = loaded - 1; i >= 0; i--) {
             message_buf_push(&state.global_history, &hist_records[i]);
+            free(hist_records[i].payload);
+            hist_records[i].payload = NULL;
             history_pushed++;
         }
         // loaded records came FROM the DB - don't write them back
@@ -227,7 +233,7 @@ int main(void) {
 
                 MessageRecord rec = {
                     .timestamp_us = m->timestamp_us,
-                    .payload = NULL,
+                    .payload = m->payload,
                     .payload_len = m->payload_len,
                     .qos = m->qos,
                     .retained = m->retained,
@@ -323,6 +329,30 @@ int main(void) {
                 state.subscriptions[si].window_count = 0;
             }
             state.profile_dialog_open = true;
+        }
+
+        // handle CSV export request (set by the export dialog)
+        if (state.export_requested) {
+            state.export_requested = false;
+            char log_msg[1400];
+            FILE* f = fopen(state.export_path, "wb");
+            if (!f) {
+                snprintf(log_msg, sizeof(log_msg), "CSV export failed: %s", strerror(errno));
+                connection_log_add(&state.conn_log, CONN_LOG_ERROR, log_msg);
+                LOG_ERROR("csv export: fopen(%s): %s", state.export_path, strerror(errno));
+            } else {
+                int64_t rows = csv_export_write(&state.global_history, state.export_topic, f);
+                bool close_ok = fclose(f) == 0;
+                if (rows < 0 || !close_ok) {
+                    snprintf(log_msg, sizeof(log_msg), "CSV export failed: %s", strerror(errno));
+                    connection_log_add(&state.conn_log, CONN_LOG_ERROR, log_msg);
+                    LOG_ERROR("csv export: write to %s failed", state.export_path);
+                } else {
+                    snprintf(log_msg, sizeof(log_msg), "Exported %lld messages to %s", (long long)rows,
+                             state.export_path);
+                    connection_log_add(&state.conn_log, CONN_LOG_INFO, log_msg);
+                }
+            }
         }
 
         if (mqtt_client_is_connected(mqtt)) {
@@ -450,6 +480,19 @@ int main(void) {
                 Clay_BoundingBox b = diff_data.boundingBox;
                 if (mouse.x >= b.x && mouse.x <= b.x + b.width && mouse.y >= b.y && mouse.y <= b.y + b.height) {
                     state.diff_enabled = !state.diff_enabled;
+                }
+            }
+            Clay_ElementData export_data = Clay_GetElementData(CLAY_ID("InspectorExportBtn"));
+            if (state.selected_topic && export_data.found) {
+                Clay_BoundingBox b = export_data.boundingBox;
+                if (mouse.x >= b.x && mouse.x <= b.x + b.width && mouse.y >= b.y && mouse.y <= b.y + b.height) {
+                    topic_node_full_path(state.selected_topic, state.export_topic, sizeof(state.export_topic));
+                    if (export_path_resolve(state.export_topic, state.export_path, sizeof(state.export_path))) {
+                        state.export_requested = true;
+                    } else {
+                        connection_log_add(&state.conn_log, CONN_LOG_ERROR,
+                                           "CSV export failed: no writable destination directory");
+                    }
                 }
             }
 

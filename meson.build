@@ -40,6 +40,7 @@ src_model = files(
     'src/model/app_state.c',
     'src/model/subscription.c',
     'src/model/chart_series.c',
+    'src/model/csv_export.c',
 )
 
 src_core = files(
@@ -62,6 +63,7 @@ src_platform = files(
     'src/platform/clay_impl.c',
     'src/platform/db.c',
     'src/platform/ui.c',
+    'src/platform/export_path.c',
 )
 
 src_main = files('src/main.c')

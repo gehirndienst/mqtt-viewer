@@ -13,6 +13,7 @@ A simple and fast MQTT client for inspecting live broker traffic. Written in C23
 - **Connection log** - timestamped connect/disconnect/error events in a panel
 - **Live stats** - live message rate and throughput per subscription
 - **Persistent history** - messages are stored in a local SQLite database across sessions (rotated to the newest 10k messages by default)
+- **Export to CSV** - export a topic subtree's message history to CSV for offline analysis
 
 ## Motivation
 
@@ -55,10 +56,25 @@ just test                 # run all unit tests
 just dbgr                 # run the debug build under debugger (requires lldb/gdb installed)
 just docs                 # generate Doxygen API docs (requires doxygen)
 just package              # build a release package; --target macos (.dmg) / linux (.deb)
-just clean                # remove all build artefacts
+just testenv              # local test broker + sample traffic + app; --only-env to skip the app
+just testenv-stop         # stop the test broker/publisher and delete the test db
+just clean                # remove all build artefacts and tear down the test environment
 ```
 
+So e.g. to build the release binary and run it, you can just do:
+
+```bash
+just run
+```
+
+## Environment Variables
+
+- `MQTT_VIEWER_DB_PATH` - overrides the path to the SQLite db. Default: `~/Library/Application Support/mqtt-viewer/mqtt-viewer.db` on macOS, `$XDG_DATA_HOME/mqtt-viewer/mqtt-viewer.db` (falling back to `~/.local/share/...`) on Linux
+- `MQTT_VIEWER_CSV_EXPORT_PATH` - overrides the directory CSV exports are written to. Default: `~/Downloads` (falling back to `$XDG_DOWNLOAD_DIR`, then `$HOME`)
+
 ## Packages
+
+Prebuilt packages (`.dmg` for macOS arm64, `.deb` for amd64/arm64) are attached to every [GitHub Release](../../releases) - built and published automatically from version tags
 
 Build them manually with `just package --target macos` (.dmg) or `just package --target linux` (.deb); only Debian-based distros are supported for now
 
@@ -68,8 +84,8 @@ The packaged binary statically links raylib and SQLite; `libmosquitto` and `libc
 
 ## Roadmap
 
-~~- packaged releases for macOS and Linux~~
-- export message history to CSV
+- ~~packaged releases for macOS and Linux~~
+- ~~export message history to CSV~~
 - wasm build
 - Windows port
 - message replay - re-publish a recorded history slice with original timing
