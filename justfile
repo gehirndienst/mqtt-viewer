@@ -197,3 +197,12 @@ testenv-stop:
     -[ -f tests/env/pusher.pid ] && kill "$(cat tests/env/pusher.pid)" 2>/dev/null
     -pkill -f "mosquitto -p 1889"
     rm -f tests/env/pusher.pid tests/env/test.db tests/env/test.db-shm tests/env/test.db-wal
+
+# Show dependency versions vs upstream (wrapdb + pinned git/tarball wraps)
+deps-check:
+    @python3 scripts/deps.py check
+
+# Bump dependencies. sqlite3 always auto (wrapdb); --auto also re-pins raylib/clay to latest upstream and rebuilds
+[arg("auto", long="auto", value="--auto")]
+deps-bump auto='':
+    @python3 scripts/deps.py bump {{auto}}

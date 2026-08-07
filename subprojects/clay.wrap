@@ -1,0 +1,8 @@
+[wrap-git]
+url = https://github.com/nicbarker/clay.git
+revision = e6cc36941ab2af5d81107617039d6f527a1c660b
+depth = 1
+patch_directory = clay
+
+[provide]
+clay = clay_dep

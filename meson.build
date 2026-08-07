@@ -25,8 +25,7 @@ threads_dep = dependency('threads')
 # Math library (needed on Linux)
 m_dep = cc.find_library('m', required : false)
 
-# Clay (header-only, vendored) — use system include to suppress warnings in clay.h
-clay_inc = include_directories('vendor/clay', is_system : true)
+clay_dep = dependency('clay', fallback : ['clay', 'clay_dep'])
 
 # src
 src_model = files(
@@ -72,8 +71,8 @@ src_inc = include_directories('src')
 
 mqtt_viewer = executable('mqtt-viewer',
     src_main + src_model + src_core + src_ui + src_platform,
-    include_directories : [src_inc, clay_inc],
-    dependencies : [raylib_dep, sqlite3_dep, mosquitto_dep, cjson_dep, m_dep, threads_dep],
+    include_directories : [src_inc],
+    dependencies : [clay_dep, raylib_dep, sqlite3_dep, mosquitto_dep, cjson_dep, m_dep, threads_dep],
     install : true
 )
 

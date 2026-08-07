@@ -35,7 +35,7 @@ The code is formatted with [clang-format](https://clang.llvm.org/docs/ClangForma
 
 ## Build
 
-Requires [Meson](https://mesonbuild.com/), Ninja, a C23 compiler, and `libmosquitto` + `libcjson` from your system. raylib and SQLite are fetched automatically as Meson subprojects; Clay is vendored in [`vendor/clay`](vendor/clay)
+Requires [Meson](https://mesonbuild.com/), Ninja, a C23 compiler, and `libmosquitto` + `libcjson` from your system. Raylib, SQLite, and Clay are fetched automatically as Meson subprojects pinned in [`subprojects/`](subprojects) (`just deps-check` shows pinned vs upstream versions)
 
 The C23 compiler requirement is **GCC ≥ 15**, **Clang ≥ 19**, or **Apple Clang ≥ 17** (Xcode 16.3+)
 
@@ -86,10 +86,15 @@ The packaged binary statically links raylib and SQLite; `libmosquitto` and `libc
 
 The project is licensed under [Apache License 2.0](LICENSE) - Copyright © 2026 Nikita Smirnov
 
+Built with (fetched as pinned Meson subprojects, statically linked into release binaries):
+
+- [Clay](https://github.com/nicbarker/clay) - zlib/libpng license, Copyright © 2024 Nic Barker
+- [raylib](https://www.raylib.com/) - zlib/libpng license, Copyright © 2013-2026 Ramon Santamaria
+- [SQLite](https://sqlite.org/) - public domain
+
 Bundled 3rd-party components keep their own licenses:
 
-- [Clay](https://github.com/nicbarker/clay) (vendored in [`vendor/clay`](vendor/clay)) - zlib/libpng license, Copyright © 2024 Nic Barker
-- Fonts [Inter](https://github.com/rsms/inter) and [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) - [SIL Open Font License 1.1](resources/fonts/)
+- Fonts [Inter](https://github.com/rsms/inter) and [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) - [SIL Open Font License 1.1](resources/fonts/) (embedded in the binary)
 
 ## Author
 

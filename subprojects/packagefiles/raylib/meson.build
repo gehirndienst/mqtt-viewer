@@ -1,4 +1,4 @@
-project('raylib', 'c', version: '5.5')
+project('raylib', 'c', version: '6.0')
 cc = meson.get_compiler('c')
 raylib_cargs = [
     '-DPLATFORM_DESKTOP', '-DGRAPHICS_API_OPENGL_33',
@@ -39,7 +39,7 @@ rglfw_lib = static_library('rglfw', 'src/rglfw.c',
     dependencies: raylib_deps)
 raylib_src = files(
     'src/rcore.c', 'src/rmodels.c', 'src/rshapes.c',
-    'src/rtext.c', 'src/rtextures.c', 'src/raudio.c', 'src/utils.c')
+    'src/rtext.c', 'src/rtextures.c', 'src/raudio.c')
 raylib_lib = static_library('raylib', raylib_src,
     c_args: raylib_cargs,
     include_directories: raylib_inc,
