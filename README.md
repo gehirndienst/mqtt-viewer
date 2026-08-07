@@ -1,6 +1,6 @@
 # MQTT Viewer
 
-A simple and fast MQTT client for inspecting live broker traffic. Written in C23, rendered with [raylib](https://www.raylib.com/) + [Clay](https://github.com/nicbarker/clay). Message history is persisted to SQLite
+A simple and fast MQTT client for inspecting live broker traffic. Written in C23, rendered with [raylib](https://www.raylib.com/) + [Clay](https://github.com/nicbarker/clay). Message history is persisted to [SQLite](https://sqlite.org/)
 
 ## Features
 
@@ -12,7 +12,7 @@ A simple and fast MQTT client for inspecting live broker traffic. Written in C23
 - **Broker profiles** - save connection settings (host, creds, TLS, MQTT proto/transport, subscriptions)
 - **Connection log** - timestamped connect/disconnect/error events in a panel
 - **Live stats** - live message rate and throughput per subscription
-- **Persistent history** - messages are stored in a local SQLite database across sessions (rotated to the newest 10k messages by default)
+- **Persistent history** - full messages are stored in a local SQLite database across sessions (rotated to the newest 10k messages by default)
 - **Export to CSV** - export a topic subtree's message history to CSV for offline analysis
 
 ## Motivation
@@ -58,6 +58,8 @@ just docs                 # generate Doxygen API docs (requires doxygen)
 just package              # build a release package; --target macos (.dmg) / linux (.deb)
 just testenv              # local test broker + sample traffic + app; --only-env to skip the app
 just testenv-stop         # stop the test broker/publisher and delete the test db
+just deps-check           # show pinned dependency versions vs upstream
+just deps-bump            # update sqlite3 from wrapdb; --auto also re-pins raylib/clay and rebuilds
 just clean                # remove all build artefacts and tear down the test environment
 ```
 
