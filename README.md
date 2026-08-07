@@ -82,16 +82,6 @@ Packaging must run on the target OS - there is no cross-compilation so far, and 
 
 The packaged binary statically links raylib and SQLite; `libmosquitto` and `libcjson` remain dynamic and must be installed on the target system. The `.deb` package declares them as dependencies, but the `.dmg` package does not (macOS has no s-w package manager)
 
-## Roadmap
-
-- ~~packaged releases for macOS and Linux~~
-- ~~export message history to CSV~~
-- wasm build
-- Windows port
-- message replay - re-publish a recorded history slice with original timing
-- mTLS client-certificate authentication
-- proxied connections
-
 ## License
 
 The project is licensed under [Apache License 2.0](LICENSE) - Copyright © 2026 Nikita Smirnov
