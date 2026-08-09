@@ -37,6 +37,15 @@ static inline void text_input_append_filtered(char* buf, size_t cap, const char*
 }
 
 /**
+ * @brief Check whether the paste shortcut (Ctrl+V / Cmd+V) fired this frame, without consuming it
+ */
+static inline bool text_input_paste_pressed(void) {
+    bool mod = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL) || IsKeyDown(KEY_LEFT_SUPER) ||
+        IsKeyDown(KEY_RIGHT_SUPER);
+    return mod && IsKeyPressed(KEY_V);
+}
+
+/**
  * @brief Append the system clipboard to @p buf if the paste shortcut fired this frame
  *
  * Control characters are stripped via text_input_append_filtered()
@@ -47,10 +56,30 @@ static inline void text_input_append_filtered(char* buf, size_t cap, const char*
  * @return true if a paste was performed.
  */
 static inline bool text_input_handle_paste(char* buf, size_t cap, bool allow_newlines) {
+    if (!text_input_paste_pressed()) return false;
+    text_input_append_filtered(buf, cap, GetClipboardText(), allow_newlines);
+    return true;
+}
+
+/**
+ * @brief Check whether the select-all shortcut (Ctrl+A / Cmd+A) fired this frame
+ */
+static inline bool text_input_select_all_pressed(void) {
     bool mod = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL) || IsKeyDown(KEY_LEFT_SUPER) ||
         IsKeyDown(KEY_RIGHT_SUPER);
-    if (!mod || !IsKeyPressed(KEY_V)) return false;
-    text_input_append_filtered(buf, cap, GetClipboardText(), allow_newlines);
+    return mod && IsKeyPressed(KEY_A);
+}
+
+/**
+ * @brief Copy @p buf to the system clipboard if the copy shortcut (Ctrl+C / Cmd+C) fired this frame
+ *
+ * @return true if a copy was performed.
+ */
+static inline bool text_input_handle_copy(const char* buf) {
+    bool mod = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL) || IsKeyDown(KEY_LEFT_SUPER) ||
+        IsKeyDown(KEY_RIGHT_SUPER);
+    if (!mod || !IsKeyPressed(KEY_C)) return false;
+    SetClipboardText(buf ? buf : "");
     return true;
 }
 

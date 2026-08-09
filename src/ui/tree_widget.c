@@ -253,22 +253,47 @@ static void render_node(AppState* state, TopicNode* node, int depth) {
 void tree_widget_render(AppState* state) {
     if (state->topic_filter_focused && !state->publish_panel_open && !state->context_menu_open &&
         !state->profile_dialog_open) {
-        if (IsKeyPressed(KEY_BACKSPACE) && strlen(state->topic_filter) > 0) {
-            state->topic_filter[strlen(state->topic_filter) - 1] = '\0';
+        if (text_input_select_all_pressed()) {
+            state->topic_filter_all_selected = true;
         }
-        if (IsKeyPressed(KEY_ESCAPE)) {
-            state->topic_filter[0] = '\0';
-            state->topic_filter_focused = false;
-        }
-        int ch;
-        while ((ch = GetCharPressed()) != 0) {
-            size_t len = strlen(state->topic_filter);
-            if (ch >= 32 && ch < 127 && len < sizeof(state->topic_filter) - 1) {
-                state->topic_filter[len] = (char)ch;
-                state->topic_filter[len + 1] = '\0';
+
+        if (!text_input_handle_copy(state->topic_filter)) {
+            if (IsKeyPressed(KEY_BACKSPACE)) {
+                if (state->topic_filter_all_selected) {
+                    state->topic_filter[0] = '\0';
+                } else if (strlen(state->topic_filter) > 0) {
+                    state->topic_filter[strlen(state->topic_filter) - 1] = '\0';
+                }
+                state->topic_filter_all_selected = false;
+            }
+
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                state->topic_filter[0] = '\0';
+                state->topic_filter_focused = false;
+                state->topic_filter_all_selected = false;
+            }
+
+            int ch;
+            while ((ch = GetCharPressed()) != 0) {
+                if (state->topic_filter_all_selected) {
+                    state->topic_filter[0] = '\0';
+                    state->topic_filter_all_selected = false;
+                }
+                size_t len = strlen(state->topic_filter);
+                if (ch >= 32 && ch < 127 && len < sizeof(state->topic_filter) - 1) {
+                    state->topic_filter[len] = (char)ch;
+                    state->topic_filter[len + 1] = '\0';
+                }
+            }
+
+            if (state->topic_filter_all_selected && text_input_paste_pressed()) {
+                state->topic_filter[0] = '\0'; // paste replaces the selection instead of appending to it
+            }
+
+            if (text_input_handle_paste(state->topic_filter, sizeof(state->topic_filter), false)) {
+                state->topic_filter_all_selected = false;
             }
         }
-        text_input_handle_paste(state->topic_filter, sizeof(state->topic_filter), false);
     } else if (!state->publish_panel_open && !state->profile_dialog_open) {
         // Drain GetCharPressed so characters don't accumulate when no panel uses them
         while (GetCharPressed() != 0) {}
@@ -277,7 +302,10 @@ void tree_widget_render(AppState* state) {
     // Lose focus when another panel opens
     if (state->publish_panel_open || state->context_menu_open || state->profile_dialog_open) {
         state->topic_filter_focused = false;
+        state->topic_filter_all_selected = false;
     }
+
+    bool filter_selected = state->topic_filter_focused && state->topic_filter_all_selected;
 
     CLAY(CLAY_ID("TreeFilter"),
          {
@@ -297,7 +325,7 @@ void tree_widget_render(AppState* state) {
                          .childGap = 6,
                          .childAlignment = {.y = CLAY_ALIGN_Y_CENTER},
                      },
-                 .backgroundColor = THEME_BG_INPUT,
+                 .backgroundColor = filter_selected ? THEME_BG_INPUT_SELECTED : THEME_BG_INPUT,
                  .cornerRadius = CLAY_CORNER_RADIUS(4),
                  .border =
                      {
@@ -314,7 +342,7 @@ void tree_widget_render(AppState* state) {
                     static char filter_display[260];
                     size_t flen = strlen(state->topic_filter);
                     memcpy(filter_display, state->topic_filter, flen);
-                    if (state->topic_filter_focused) {
+                    if (state->topic_filter_focused && !filter_selected) {
                         filter_display[flen] = '|';
                         filter_display[flen + 1] = '\0';
                     } else {
@@ -366,6 +394,7 @@ void tree_widget_render(AppState* state) {
         } else {
             state->topic_filter_focused = filter_hovered;
         }
+        state->topic_filter_all_selected = false;
     }
 
     CLAY(CLAY_ID("TreeScroll"),

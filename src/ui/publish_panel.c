@@ -32,6 +32,7 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
     static bool s_was_open = false;
     if (!s_was_open) {
         state->publish_active_field = 0; // reset to topic field when panel first opens
+        state->publish_field_all_selected = false;
     }
     s_was_open = true;
 
@@ -43,53 +44,60 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
     bool click_payload = false;
 
     {
-        int ch;
-        while ((ch = GetCharPressed()) != 0) {
-            if (state->publish_active_field == 0) {
-                size_t len = strlen(state->publish_topic);
-                if (len + 1 < sizeof(state->publish_topic)) {
-                    state->publish_topic[len] = (char)ch;
-                    state->publish_topic[len + 1] = '\0';
+        char* buf = state->publish_active_field == 0 ? state->publish_topic : state->publish_payload;
+        size_t cap = state->publish_active_field == 0 ? sizeof(state->publish_topic) : sizeof(state->publish_payload);
+        bool allow_newlines = state->publish_active_field == 1;
+
+        if (text_input_select_all_pressed()) {
+            state->publish_field_all_selected = true;
+        }
+
+        if (!text_input_handle_copy(buf)) {
+            int ch;
+            while ((ch = GetCharPressed()) != 0) {
+                if (state->publish_field_all_selected) {
+                    buf[0] = '\0';
+                    state->publish_field_all_selected = false;
                 }
-            } else {
-                size_t len = strlen(state->publish_payload);
-                if (len + 1 < sizeof(state->publish_payload)) {
-                    state->publish_payload[len] = (char)ch;
-                    state->publish_payload[len + 1] = '\0';
+                size_t len = strlen(buf);
+                if (len + 1 < cap) {
+                    buf[len] = (char)ch;
+                    buf[len + 1] = '\0';
                 }
             }
-        }
-        if (state->publish_active_field == 0) {
-            text_input_handle_paste(state->publish_topic, sizeof(state->publish_topic), false);
-        } else {
-            text_input_handle_paste(state->publish_payload, sizeof(state->publish_payload), true);
-        }
-        bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-        if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) {
-            if (ctrl) {
-                if (state->publish_active_field == 0)
-                    state->publish_topic[0] = '\0';
-                else
-                    state->publish_payload[0] = '\0';
-            } else {
-                if (state->publish_active_field == 0) {
-                    size_t len = strlen(state->publish_topic);
-                    if (len > 0) state->publish_topic[len - 1] = '\0';
+
+            if (state->publish_field_all_selected && text_input_paste_pressed()) {
+                buf[0] = '\0'; // paste replaces the selection instead of appending to it
+            }
+
+            if (text_input_handle_paste(buf, cap, allow_newlines)) {
+                state->publish_field_all_selected = false;
+            }
+
+            bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+            if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) {
+                if (ctrl || state->publish_field_all_selected) {
+                    buf[0] = '\0';
                 } else {
-                    size_t len = strlen(state->publish_payload);
-                    if (len > 0) state->publish_payload[len - 1] = '\0';
+                    size_t len = strlen(buf);
+                    if (len > 0) buf[len - 1] = '\0';
                 }
+                state->publish_field_all_selected = false;
             }
         }
+
         if (IsKeyPressed(KEY_ESCAPE)) {
             do_close = true;
         }
     }
 
+    bool topic_selected = state->publish_active_field == 0 && state->publish_field_all_selected;
+    bool payload_selected = state->publish_active_field == 1 && state->publish_field_all_selected;
+
     // Topic field value
     static char s_topic_display[256 + 4];
     snprintf(s_topic_display, sizeof(s_topic_display), "%s%s", state->publish_topic,
-             state->publish_active_field == 0 ? "|" : "");
+             (state->publish_active_field == 0 && !topic_selected) ? "|" : "");
 
     // Payload field value only show first 128 chars to avoid huge display
     static char s_payload_display[PP_BUF_SIZE];
@@ -105,7 +113,7 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
         } else {
             s_payload_display[show] = '\0';
         }
-        if (state->publish_active_field == 1) {
+        if (state->publish_active_field == 1 && !payload_selected) {
             size_t cur = strlen(s_payload_display);
             if (cur + 1 < sizeof(s_payload_display)) {
                 s_payload_display[cur] = '|';
@@ -202,7 +210,9 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
                              .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(28, 0)},
                              .padding = {8, 8, 4, 4},
                          },
-                     .backgroundColor = state->publish_active_field == 0 ? THEME_BG_HOVER : THEME_BG_INPUT,
+                     .backgroundColor = topic_selected
+                         ? THEME_BG_INPUT_SELECTED
+                         : (state->publish_active_field == 0 ? THEME_BG_HOVER : THEME_BG_INPUT),
                      .cornerRadius = CLAY_CORNER_RADIUS(3),
                      .border = {.width = CLAY_BORDER_OUTSIDE(1), .color = THEME_BORDER},
                  }) {
@@ -237,7 +247,9 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
                              .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(72, 0)},
                              .padding = {8, 8, 4, 4},
                          },
-                     .backgroundColor = state->publish_active_field == 1 ? THEME_BG_HOVER : THEME_BG_INPUT,
+                     .backgroundColor = payload_selected
+                         ? THEME_BG_INPUT_SELECTED
+                         : (state->publish_active_field == 1 ? THEME_BG_HOVER : THEME_BG_INPUT),
                      .cornerRadius = CLAY_CORNER_RADIUS(3),
                      .border = {.width = CLAY_BORDER_OUTSIDE(1), .color = THEME_BORDER},
                  }) {
@@ -343,8 +355,14 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
         }
     }
 
-    if (click_topic) state->publish_active_field = 0;
-    if (click_payload) state->publish_active_field = 1;
+    if (click_topic) {
+        state->publish_active_field = 0;
+        state->publish_field_all_selected = false;
+    }
+    if (click_payload) {
+        state->publish_active_field = 1;
+        state->publish_field_all_selected = false;
+    }
     if (toggle_retain) state->publish_retain = !state->publish_retain;
     if (set_qos >= 0) state->publish_qos = (uint8_t)set_qos;
     if (do_close) {

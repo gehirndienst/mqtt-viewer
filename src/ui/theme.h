@@ -12,6 +12,7 @@
 #define THEME_BG_SUBTLE (Clay_Color){34, 34, 34, 255} // #222222
 #define THEME_BG_INPUT (Clay_Color){42, 42, 42, 255} // #2a2a2a
 #define THEME_BG_INPUT_ACTIVE (Clay_Color){35, 48, 68, 255} // focused/active input field
+#define THEME_BG_INPUT_SELECTED (Clay_Color){70, 70, 130, 255} // #464682 - whole field text selected (Ctrl+A)
 #define THEME_BG_TOGGLE_ON (Clay_Color){20, 50, 20, 255} // enabled toggle background
 #define THEME_BG_OVERLAY (Clay_Color){0, 0, 0, 180} // modal backdrop scrim
 #define THEME_BG_BUTTON (Clay_Color){51, 51, 51, 255} // #333333

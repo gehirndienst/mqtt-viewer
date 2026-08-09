@@ -71,6 +71,7 @@ typedef struct {
     bool profile_dialog_open;
     char topic_filter[256];
     bool topic_filter_focused;
+    bool topic_filter_all_selected;
     float tree_width_ratio;
     bool diff_enabled;
 
@@ -92,6 +93,7 @@ typedef struct {
     uint8_t publish_qos;
     bool publish_retain;
     int publish_active_field; // keyboard focus: 0 = topic, 1 = payload
+    bool publish_field_all_selected; // ctrl A
 
     // Inspector state
     int inspector_view; // active ViewMode tab (VIEW_JSON/TEXT/HEX/HISTORY)
@@ -104,6 +106,7 @@ typedef struct {
     // Profile dialog edit session
     int profile_active_field; // focused field index, -1 = none
     int profile_last_idx; // tracks active_profile_idx to resync edit buffers; -2 = never seen
+    bool profile_field_all_selected; // whole active field selected
     float profile_save_flash_timer; // >0 while the Save-confirmation flash is showing
 
     // Stats

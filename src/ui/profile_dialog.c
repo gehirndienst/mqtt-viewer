@@ -42,6 +42,7 @@ static char s_sub_qos_ids[MAX_PROFILE_SUBS][3][32];
 // Numeric fields stored as strings; parsed to integers on Save / Connect
 static char s_port_str[16];
 static char s_ka_str[16];
+static bool s_active_field_selected = false;
 
 static char* next_field_buf(void) {
     s_field_buf_idx = (s_field_buf_idx + 1) % FIELD_BUF_COUNT;
@@ -118,9 +119,9 @@ static void render_field(const char* label, const char* value, const char* field
             CLAY_TEXT(ls, THEME_TEXT_SMALL);
         }
 
-        // Value: append "|" cursor when active
+        bool is_selected = is_active && s_active_field_selected;
         char* buf = next_field_buf();
-        if (is_active) {
+        if (is_active && !is_selected) {
             snprintf(buf, FIELD_BUF_SIZE, "%s|", value ? value : "");
         } else {
             strncpy(buf, value ? value : "", FIELD_BUF_SIZE - 1);
@@ -135,7 +136,8 @@ static void render_field(const char* label, const char* value, const char* field
                          .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(24, 0)},
                          .padding = {8, 8, 4, 4},
                      },
-                 .backgroundColor = is_active ? THEME_BG_INPUT_ACTIVE : THEME_BG_INPUT,
+                 .backgroundColor =
+                     is_selected ? THEME_BG_INPUT_SELECTED : (is_active ? THEME_BG_INPUT_ACTIVE : THEME_BG_INPUT),
                  .cornerRadius = CLAY_CORNER_RADIUS(3),
                  .border =
                      {
@@ -286,6 +288,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
     if (!state->profile_dialog_open) return;
 
     s_field_buf_idx = FIELD_BUF_COUNT - 1;
+    s_active_field_selected = state->profile_field_all_selected;
     state->profile_save_flash_timer -= GetFrameTime();
     bool save_flashing = (state->profile_save_flash_timer > 0.0f);
 
@@ -300,34 +303,63 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
         if (prof) sync_numeric_bufs(prof);
     }
 
+    // any change of focused field drops the selection
+    static int s_prev_active_field = -2;
+    if (state->profile_active_field != s_prev_active_field) {
+        s_prev_active_field = state->profile_active_field;
+        state->profile_field_all_selected = false;
+    }
+
     int sub_count = prof ? prof->subscription_count : 0;
     int total_fields = FIDX_SUB_BASE + sub_count;
 
     if (state->profile_active_field >= 0 && prof) {
         FieldTarget ft = field_target(prof, state->profile_active_field);
         if (ft.buf) {
-            int ch;
-            while ((ch = GetCharPressed()) != 0) {
-                size_t len = strlen(ft.buf);
-                if (len + 1 < ft.max) {
-                    ft.buf[len] = (char)ch;
-                    ft.buf[len + 1] = '\0';
-                }
+            if (text_input_select_all_pressed()) {
+                state->profile_field_all_selected = true;
             }
-            text_input_handle_paste(ft.buf, ft.max, false);
-            bool ctrl_down = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-            if (ctrl_down && (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE))) {
-                ft.buf[0] = '\0';
-            } else if (!ctrl_down && (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE))) {
-                size_t len = strlen(ft.buf);
-                if (len > 0) ft.buf[len - 1] = '\0';
+            if (!text_input_handle_copy(ft.buf)) {
+                int ch;
+                while ((ch = GetCharPressed()) != 0) {
+                    if (state->profile_field_all_selected) {
+                        ft.buf[0] = '\0';
+                        state->profile_field_all_selected = false;
+                    }
+                    size_t len = strlen(ft.buf);
+                    if (len + 1 < ft.max) {
+                        ft.buf[len] = (char)ch;
+                        ft.buf[len + 1] = '\0';
+                    }
+                }
+
+                if (state->profile_field_all_selected && text_input_paste_pressed()) {
+                    ft.buf[0] = '\0'; // paste replaces the selection instead of appending to it
+                }
+
+                if (text_input_handle_paste(ft.buf, ft.max, false)) {
+                    state->profile_field_all_selected = false;
+                }
+
+                bool ctrl_down = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+                if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) {
+                    if (ctrl_down || state->profile_field_all_selected) {
+                        ft.buf[0] = '\0';
+                    } else {
+                        size_t len = strlen(ft.buf);
+                        if (len > 0) ft.buf[len - 1] = '\0';
+                    }
+                    state->profile_field_all_selected = false;
+                }
             }
         }
         if (IsKeyPressed(KEY_TAB)) {
             state->profile_active_field = (state->profile_active_field + 1) % total_fields;
+            state->profile_field_all_selected = false;
         }
         if (IsKeyPressed(KEY_ESCAPE)) {
             state->profile_active_field = -1;
+            state->profile_field_all_selected = false;
         }
     }
 
@@ -893,6 +925,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
             };
             if (Clay_PointerOver(Clay_GetElementId(cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 state->profile_active_field = kFieldClicks[fi].fidx;
+                state->profile_field_all_selected = false;
             }
         }
         // Subscription field clicks
@@ -902,6 +935,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
             Clay_String cs = {.length = (int32_t)strlen(sub_inp_id), .chars = sub_inp_id};
             if (Clay_PointerOver(Clay_GetElementId(cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 state->profile_active_field = FIDX_SUB_BASE + s;
+                state->profile_field_all_selected = false;
             }
         }
         // Subscription QoS button clicks
