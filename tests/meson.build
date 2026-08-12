@@ -56,3 +56,9 @@ test_csv = executable('test_csv_export',
     include_directories : test_inc
 )
 test('csv_export', test_csv)
+
+test_ssh_tunnel = executable('test_ssh_tunnel',
+    'test_ssh_tunnel.c', '../src/core/ssh_tunnel.c', '../src/model/connection_log.c',
+    include_directories : test_inc
+)
+test('ssh_tunnel', test_ssh_tunnel)

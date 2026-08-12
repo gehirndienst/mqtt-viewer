@@ -44,6 +44,7 @@ src_model = files(
 
 src_core = files(
     'src/core/mqtt_client.c',
+    'src/core/ssh_tunnel.c',
 )
 
 src_ui = files(

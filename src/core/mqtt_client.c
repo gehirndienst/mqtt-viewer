@@ -12,6 +12,7 @@
 #include <mosquitto.h>
 
 #include "core/mqtt_client.h"
+#include "core/ssh_tunnel.h"
 #include "platform/log.h"
 
 #define MQTT_CLIENT_MAX_SUBS 32
@@ -33,6 +34,7 @@ struct MqttClient {
     char sub_topics[MQTT_CLIENT_MAX_SUBS][256];
     uint8_t sub_qos[MQTT_CLIENT_MAX_SUBS];
     uint32_t sub_count;
+    SshTunnel ssh_tunnel;
 };
 
 static uint64_t now_us(void) {
@@ -147,6 +149,7 @@ void mqtt_client_destroy(MqttClient* client) {
         stop_network_thread(client->mosq);
         mosquitto_destroy(client->mosq);
     }
+    ssh_tunnel_stop(&client->ssh_tunnel);
     pthread_mutex_destroy(&client->sub_mutex);
     mosquitto_lib_cleanup();
     free(client);
@@ -156,6 +159,24 @@ bool mqtt_client_connect(MqttClient* client, const MqttConnectOpts* opts) {
     if (client->mosq) {
         stop_network_thread(client->mosq);
         mosquitto_destroy(client->mosq);
+    }
+    ssh_tunnel_stop(&client->ssh_tunnel);
+
+    const char* dial_host = opts->host;
+    uint16_t dial_port = opts->port;
+    if (opts->ssh_tunnel_enabled) {
+        SshTunnelOpts tun_opts = {
+            .target_host = opts->host,
+            .target_port = opts->port,
+            .jump_host = opts->ssh_jump_host,
+            .jump_port = opts->ssh_jump_port,
+            .jump_user = opts->ssh_jump_user,
+            .jump_key_path = opts->ssh_jump_key_path,
+            .jump_password = opts->ssh_jump_password,
+        };
+        if (!ssh_tunnel_start(&client->ssh_tunnel, &tun_opts, client->log)) return false;
+        dial_host = "127.0.0.1";
+        dial_port = client->ssh_tunnel.local_port;
     }
 
     atomic_store(&client->conn_state, MQTT_CS_CONNECTING);
@@ -262,10 +283,10 @@ bool mqtt_client_connect(MqttClient* client, const MqttConnectOpts* opts) {
     mosquitto_subscribe_callback_set(client->mosq, on_subscribe);
 
     char buf[512];
-    snprintf(buf, sizeof(buf), "Connecting to %s:%d...", opts->host, opts->port);
+    snprintf(buf, sizeof(buf), "Connecting to %s:%d...", dial_host, dial_port);
     connection_log_add(client->log, CONN_LOG_INFO, buf);
 
-    int rc = mosquitto_connect_async(client->mosq, opts->host, opts->port, opts->keepalive_secs);
+    int rc = mosquitto_connect_async(client->mosq, dial_host, dial_port, opts->keepalive_secs);
     if (rc != MOSQ_ERR_SUCCESS) {
         snprintf(buf, sizeof(buf), "Connect failed: %s", mosquitto_strerror(rc));
         connection_log_add(client->log, CONN_LOG_ERROR, buf);
@@ -297,6 +318,23 @@ void mqtt_client_disconnect(MqttClient* client) {
             connection_log_add(client->log, CONN_LOG_INFO, "Disconnected");
         }
     }
+    ssh_tunnel_stop(&client->ssh_tunnel);
+}
+
+void mqtt_client_poll_ssh_tunnel(MqttClient* client) {
+    if (!client || client->ssh_tunnel.pid <= 0) return;
+    if (ssh_tunnel_poll_alive(&client->ssh_tunnel)) return;
+
+    if (client->mosq) {
+        stop_network_thread(client->mosq);
+        mosquitto_destroy(client->mosq);
+        client->mosq = NULL;
+    }
+    atomic_store(&client->conn_state, MQTT_CS_DISCONNECTED);
+    atomic_store(&client->last_disconnect_rc, 0);
+    connection_log_add(client->log, CONN_LOG_ERROR,
+                       "SSH tunnel closed unexpectedly - disconnected (reconnect from the profile to "
+                       "re-establish the tunnel)");
 }
 
 bool mqtt_client_is_connected(MqttClient* client) {

@@ -30,6 +30,12 @@ typedef struct {
     char tls_client_key[512];
     int tls_version; // 12 or 13
     bool tls_verify;
+    bool ssh_tunnel_enabled;
+    char ssh_jump_host[256];
+    uint16_t ssh_jump_port;
+    char ssh_jump_user[128];
+    char ssh_jump_key_path[512]; // optional; empty = default identity / ssh-agent
+    char ssh_jump_password[128]; // optional; non-empty switches to `sshpass`-driven password auth
     ProfileSubscription subscriptions[MAX_PROFILE_SUBS];
     int subscription_count;
 } BrokerProfile;

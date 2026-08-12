@@ -24,6 +24,14 @@ typedef struct {
     const char* tls_client_key; // path to client key (NULL = no mutual auth)
     int tls_version; // 12 = TLSv1.2, 13 = TLSv1.3 (0 = default/any)
     bool tls_verify; // true = verify server cert (default)
+    // SSH tunnel - when enabled, an `ssh -L` process is spawned to forward a local port to
+    // host:port and that local port is dialed instead
+    bool ssh_tunnel_enabled;
+    const char* ssh_jump_host;
+    uint16_t ssh_jump_port; // 0 => default 22
+    const char* ssh_jump_user; // NULL => rely on ssh_config / current OS user
+    const char* ssh_jump_key_path; // NULL => default identity / ssh-agent
+    const char* ssh_jump_password; // NULL/empty => key-based auth; non-empty => password auth via sshpass
 } MqttConnectOpts;
 
 typedef struct {
@@ -67,6 +75,11 @@ bool mqtt_client_connect(MqttClient* client, const MqttConnectOpts* opts);
 
 /** @brief Initiate a clean disconnect. The I/O thread keeps running. */
 void mqtt_client_disconnect(MqttClient* client);
+
+/**
+ * @brief Check whether an active SSH tunnel is still alive (main thread only, call once per frame)
+ */
+void mqtt_client_poll_ssh_tunnel(MqttClient* client);
 
 /** @brief Return true when the broker handshake has completed successfully. */
 bool mqtt_client_is_connected(MqttClient* client);

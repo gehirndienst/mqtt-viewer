@@ -78,6 +78,12 @@ Db* db_open(const char* db_path) {
     }
 
     sqlite3_exec(p->db, "ALTER TABLE profiles ADD COLUMN transport INTEGER DEFAULT 0;", NULL, NULL, NULL);
+    sqlite3_exec(p->db, "ALTER TABLE profiles ADD COLUMN ssh_tunnel_enabled INTEGER DEFAULT 0;", NULL, NULL, NULL);
+    sqlite3_exec(p->db, "ALTER TABLE profiles ADD COLUMN ssh_jump_host TEXT DEFAULT '';", NULL, NULL, NULL);
+    sqlite3_exec(p->db, "ALTER TABLE profiles ADD COLUMN ssh_jump_port INTEGER DEFAULT 22;", NULL, NULL, NULL);
+    sqlite3_exec(p->db, "ALTER TABLE profiles ADD COLUMN ssh_jump_user TEXT DEFAULT '';", NULL, NULL, NULL);
+    sqlite3_exec(p->db, "ALTER TABLE profiles ADD COLUMN ssh_jump_key_path TEXT DEFAULT '';", NULL, NULL, NULL);
+    sqlite3_exec(p->db, "ALTER TABLE profiles ADD COLUMN ssh_jump_password TEXT DEFAULT '';", NULL, NULL, NULL);
 
     LOG_INFO("db_open: opened '%s'", db_path);
     return p;
@@ -142,8 +148,11 @@ bool db_save_profile(Db* db, BrokerProfile* profile) {
     const char* sql = "INSERT OR REPLACE INTO profiles "
                       "(id, name, host, port, protocol_version, client_id, clean_session, keepalive_secs,"
                       " username, password, tls_ca_cert, tls_client_cert, tls_client_key,"
-                      " tls_version, tls_verify, subscriptions, transport)"
-                      " VALUES (NULLIF(?1,0), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17);";
+                      " tls_version, tls_verify, subscriptions, transport,"
+                      " ssh_tunnel_enabled, ssh_jump_host, ssh_jump_port, ssh_jump_user, ssh_jump_key_path,"
+                      " ssh_jump_password)"
+                      " VALUES (NULLIF(?1,0), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,"
+                      "         ?18, ?19, ?20, ?21, ?22, ?23);";
 
     sqlite3_stmt* stmt = NULL;
     int rc = sqlite3_prepare_v2(db->db, sql, -1, &stmt, NULL);
@@ -170,6 +179,12 @@ bool db_save_profile(Db* db, BrokerProfile* profile) {
     sqlite3_bind_int(stmt, 15, profile->tls_verify ? 1 : 0);
     sqlite3_bind_text(stmt, 16, subs_json ? subs_json : "[]", -1, SQLITE_STATIC);
     sqlite3_bind_int(stmt, 17, profile->transport);
+    sqlite3_bind_int(stmt, 18, profile->ssh_tunnel_enabled ? 1 : 0);
+    sqlite3_bind_text(stmt, 19, profile->ssh_jump_host, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 20, profile->ssh_jump_port);
+    sqlite3_bind_text(stmt, 21, profile->ssh_jump_user, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 22, profile->ssh_jump_key_path, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 23, profile->ssh_jump_password, -1, SQLITE_STATIC);
 
     bool was_new = (profile->id == 0);
     rc = sqlite3_step(stmt);
@@ -213,7 +228,9 @@ int db_load_profiles(Db* db, BrokerProfile* profiles, int max_count) {
 
     const char* sql = "SELECT id, name, host, port, protocol_version, client_id, clean_session,"
                       "       keepalive_secs, username, password, tls_ca_cert, tls_client_cert,"
-                      "       tls_client_key, tls_version, tls_verify, subscriptions, transport"
+                      "       tls_client_key, tls_version, tls_verify, subscriptions, transport,"
+                      "       ssh_tunnel_enabled, ssh_jump_host, ssh_jump_port, ssh_jump_user, ssh_jump_key_path,"
+                      "       ssh_jump_password"
                       " FROM profiles ORDER BY id;";
 
     sqlite3_stmt* stmt = NULL;
@@ -245,6 +262,12 @@ int db_load_profiles(Db* db, BrokerProfile* profiles, int max_count) {
         p->tls_verify = sqlite3_column_int(stmt, 14) != 0;
         const char* subs = (const char*)sqlite3_column_text(stmt, 15);
         p->transport = sqlite3_column_int(stmt, 16);
+        p->ssh_tunnel_enabled = sqlite3_column_int(stmt, 17) != 0;
+        const char* ssh_host = (const char*)sqlite3_column_text(stmt, 18);
+        p->ssh_jump_port = (uint16_t)sqlite3_column_int(stmt, 19);
+        const char* ssh_user = (const char*)sqlite3_column_text(stmt, 20);
+        const char* ssh_key = (const char*)sqlite3_column_text(stmt, 21);
+        const char* ssh_pass = (const char*)sqlite3_column_text(stmt, 22);
 
         if (name) strncpy(p->name, name, sizeof(p->name) - 1);
         if (host) strncpy(p->host, host, sizeof(p->host) - 1);
@@ -254,6 +277,10 @@ int db_load_profiles(Db* db, BrokerProfile* profiles, int max_count) {
         if (ca) strncpy(p->tls_ca_cert, ca, sizeof(p->tls_ca_cert) - 1);
         if (ccert) strncpy(p->tls_client_cert, ccert, sizeof(p->tls_client_cert) - 1);
         if (ckey) strncpy(p->tls_client_key, ckey, sizeof(p->tls_client_key) - 1);
+        if (ssh_host) strncpy(p->ssh_jump_host, ssh_host, sizeof(p->ssh_jump_host) - 1);
+        if (ssh_user) strncpy(p->ssh_jump_user, ssh_user, sizeof(p->ssh_jump_user) - 1);
+        if (ssh_pass) strncpy(p->ssh_jump_password, ssh_pass, sizeof(p->ssh_jump_password) - 1);
+        if (ssh_key) strncpy(p->ssh_jump_key_path, ssh_key, sizeof(p->ssh_jump_key_path) - 1);
 
         deserialize_subscriptions(p, subs);
         count++;

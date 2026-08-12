@@ -31,7 +31,12 @@
 #define FIDX_CA 7
 #define FIDX_CERT 8
 #define FIDX_KEY 9
-#define FIDX_SUB_BASE 10
+#define FIDX_SSH_HOST 10
+#define FIDX_SSH_PORT 11
+#define FIDX_SSH_USER 12
+#define FIDX_SSH_PASS 13
+#define FIDX_SSH_KEY 14
+#define FIDX_SUB_BASE 15
 #define FIDX_MAX (FIDX_SUB_BASE + MAX_PROFILE_SUBS)
 
 static char s_field_bufs[FIELD_BUF_COUNT][FIELD_BUF_SIZE];
@@ -42,7 +47,9 @@ static char s_sub_qos_ids[MAX_PROFILE_SUBS][3][32];
 // Numeric fields stored as strings; parsed to integers on Save / Connect
 static char s_port_str[16];
 static char s_ka_str[16];
+static char s_ssh_port_str[16];
 static bool s_active_field_selected = false;
+static bool s_ssh_section_expanded = false;
 
 static char* next_field_buf(void) {
     s_field_buf_idx = (s_field_buf_idx + 1) % FIELD_BUF_COUNT;
@@ -76,6 +83,16 @@ static FieldTarget field_target(BrokerProfile* prof, int idx) {
             return (FieldTarget){prof->tls_client_cert, sizeof(prof->tls_client_cert)};
         case FIDX_KEY:
             return (FieldTarget){prof->tls_client_key, sizeof(prof->tls_client_key)};
+        case FIDX_SSH_HOST:
+            return (FieldTarget){prof->ssh_jump_host, sizeof(prof->ssh_jump_host)};
+        case FIDX_SSH_PORT:
+            return (FieldTarget){s_ssh_port_str, sizeof(s_ssh_port_str)};
+        case FIDX_SSH_USER:
+            return (FieldTarget){prof->ssh_jump_user, sizeof(prof->ssh_jump_user)};
+        case FIDX_SSH_PASS:
+            return (FieldTarget){prof->ssh_jump_password, sizeof(prof->ssh_jump_password)};
+        case FIDX_SSH_KEY:
+            return (FieldTarget){prof->ssh_jump_key_path, sizeof(prof->ssh_jump_key_path)};
         default:
             if (idx >= FIDX_SUB_BASE && idx < FIDX_SUB_BASE + MAX_PROFILE_SUBS) {
                 int si = idx - FIDX_SUB_BASE;
@@ -88,6 +105,7 @@ static FieldTarget field_target(BrokerProfile* prof, int idx) {
 static void sync_numeric_bufs(const BrokerProfile* prof) {
     snprintf(s_port_str, sizeof(s_port_str), "%d", (int)prof->port);
     snprintf(s_ka_str, sizeof(s_ka_str), "%d", (int)prof->keepalive_secs);
+    snprintf(s_ssh_port_str, sizeof(s_ssh_port_str), "%d", (int)prof->ssh_jump_port);
 }
 
 static void render_field(const char* label, const char* value, const char* field_id, bool is_active) {
@@ -203,6 +221,41 @@ static void render_toggle(const char* label, bool value, const char* toggle_id) 
                           }));
             }
         }
+    }
+}
+
+// click target id is "{id}_Hdr"
+static void render_accordion_header(const char* label, bool expanded, const char* id, const char* suffix) {
+    char row_id[64];
+    snprintf(row_id, sizeof(row_id), "%s_Hdr", id);
+    Clay_String row_cs = {.length = (int32_t)strlen(row_id), .chars = row_id};
+
+    CLAY(CLAY_SID(row_cs),
+         {
+             .layout =
+                 {
+                     .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                     .padding = {0, 0, 6, 4},
+                     .childGap = 6,
+                     .childAlignment = {.y = CLAY_ALIGN_Y_CENTER},
+                 },
+         }) {
+        CLAY_TEXT(expanded ? CLAY_STRING("v") : CLAY_STRING(">"),
+                  CLAY_TEXT_CONFIG({
+                      .fontSize = 10,
+                      .fontId = FONT_DEFAULT,
+                      .textColor = THEME_TEXT_DIM,
+                  }));
+
+        char* text = next_field_buf();
+        snprintf(text, FIELD_BUF_SIZE, "%s%s", label, suffix ? suffix : "");
+        Clay_String ls = {.length = (int32_t)strlen(text), .chars = text};
+        CLAY_TEXT(ls,
+                  CLAY_TEXT_CONFIG({
+                      .fontSize = 10,
+                      .fontId = FONT_DEFAULT,
+                      .textColor = THEME_TEXT_DIM,
+                  }));
     }
 }
 
@@ -354,7 +407,11 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
             }
         }
         if (IsKeyPressed(KEY_TAB)) {
-            state->profile_active_field = (state->profile_active_field + 1) % total_fields;
+            int next = (state->profile_active_field + 1) % total_fields;
+            if (!s_ssh_section_expanded && next >= FIDX_SSH_HOST && next <= FIDX_SSH_PASS) {
+                next = FIDX_SUB_BASE % total_fields;
+            }
+            state->profile_active_field = next;
             state->profile_field_all_selected = false;
         }
         if (IsKeyPressed(KEY_ESCAPE)) {
@@ -371,6 +428,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
     bool add_sub = false;
     bool toggle_clean_session = false;
     bool toggle_tls_verify = false;
+    bool toggle_ssh_tunnel = false;
     int set_protocol = 0; // 0 = no change
     int set_tls_ver = -1; // -1 = no change
     int set_transport = -1; // -1 = no change
@@ -547,8 +605,10 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                                       .textColor = THEME_TEXT_DIM,
                                   }));
                         render_field("Name", prof->name, "FldName", state->profile_active_field == FIDX_NAME);
-                        render_field("Host", prof->host, "FldHost", state->profile_active_field == FIDX_HOST);
-                        render_field("Port", s_port_str, "FldPort", state->profile_active_field == FIDX_PORT);
+                        render_field(prof->ssh_tunnel_enabled ? "Broker Host (via jump)" : "Host", prof->host,
+                                     "FldHost", state->profile_active_field == FIDX_HOST);
+                        render_field(prof->ssh_tunnel_enabled ? "Broker Port (via jump)" : "Port", s_port_str,
+                                     "FldPort", state->profile_active_field == FIDX_PORT);
                         render_field("Client ID", prof->client_id, "FldClientId",
                                      state->profile_active_field == FIDX_CLIENTID);
                         {
@@ -602,6 +662,27 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                         render_field("Client Key", prof->tls_client_key, "FldKey",
                                      state->profile_active_field == FIDX_KEY);
                         render_toggle("Verify Host", prof->tls_verify, "ToggleTlsVerify");
+
+                        render_accordion_header("SSH TUNNEL", s_ssh_section_expanded, "SshSection",
+                                                prof->ssh_tunnel_enabled ? " (enabled)" : NULL);
+                        if (s_ssh_section_expanded) {
+                            render_toggle("Enable SSH Tunnel", prof->ssh_tunnel_enabled, "ToggleSshTunnel");
+                            render_field("Jump Host", prof->ssh_jump_host, "FldSshHost",
+                                         state->profile_active_field == FIDX_SSH_HOST);
+                            render_field("Jump Port", s_ssh_port_str, "FldSshPort",
+                                         state->profile_active_field == FIDX_SSH_PORT);
+                            render_field("Jump User", prof->ssh_jump_user, "FldSshUser",
+                                         state->profile_active_field == FIDX_SSH_USER);
+                            {
+                                const char* ssh_pass_val = (state->profile_active_field == FIDX_SSH_PASS)
+                                    ? prof->ssh_jump_password
+                                    : "\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2\xe2\x80\xa2";
+                                render_field("Jump Password", ssh_pass_val, "FldSshPass",
+                                             state->profile_active_field == FIDX_SSH_PASS);
+                            }
+                            render_field("Private Key", prof->ssh_jump_key_path, "FldSshKey",
+                                         state->profile_active_field == FIDX_SSH_KEY);
+                        }
 
                         CLAY_TEXT(CLAY_STRING("SUBSCRIPTIONS"),
                                   CLAY_TEXT_CONFIG({
@@ -871,6 +952,19 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
             IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             toggle_tls_verify = true;
         }
+        if (Clay_PointerOver(Clay_GetElementId(CLAY_STRING("ToggleSshTunnel_Btn"))) &&
+            IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            toggle_ssh_tunnel = true;
+        }
+        if (Clay_PointerOver(Clay_GetElementId(CLAY_STRING("SshSection_Hdr"))) &&
+            IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            s_ssh_section_expanded = !s_ssh_section_expanded;
+            if (!s_ssh_section_expanded && state->profile_active_field >= FIDX_SSH_HOST &&
+                state->profile_active_field <= FIDX_SSH_PASS) {
+                state->profile_active_field = -1;
+                state->profile_field_all_selected = false;
+            }
+        }
 
         // Protocol selector clicks
         {
@@ -913,10 +1007,14 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
             const char* val_id;
             int fidx;
         } kFieldClicks[] = {
-            {"FldName_Val", FIDX_NAME},         {"FldHost_Val", FIDX_HOST},    {"FldPort_Val", FIDX_PORT},
-            {"FldClientId_Val", FIDX_CLIENTID}, {"FldKeepalive_Val", FIDX_KA}, {"FldUser_Val", FIDX_USER},
-            {"FldPass_Val", FIDX_PASS},         {"FldCA_Val", FIDX_CA},        {"FldCert_Val", FIDX_CERT},
-            {"FldKey_Val", FIDX_KEY},
+            {"FldName_Val", FIDX_NAME},        {"FldHost_Val", FIDX_HOST},
+            {"FldPort_Val", FIDX_PORT},        {"FldClientId_Val", FIDX_CLIENTID},
+            {"FldKeepalive_Val", FIDX_KA},     {"FldUser_Val", FIDX_USER},
+            {"FldPass_Val", FIDX_PASS},        {"FldCA_Val", FIDX_CA},
+            {"FldCert_Val", FIDX_CERT},        {"FldKey_Val", FIDX_KEY},
+            {"FldSshHost_Val", FIDX_SSH_HOST}, {"FldSshPort_Val", FIDX_SSH_PORT},
+            {"FldSshUser_Val", FIDX_SSH_USER}, {"FldSshPass_Val", FIDX_SSH_PASS},
+            {"FldSshKey_Val", FIDX_SSH_KEY},
         };
         for (int fi = 0; fi < (int)(sizeof(kFieldClicks) / sizeof(kFieldClicks[0])); fi++) {
             Clay_String cs = {
@@ -1006,6 +1104,9 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
     if (toggle_tls_verify && prof) {
         prof->tls_verify = !prof->tls_verify;
     }
+    if (toggle_ssh_tunnel && prof) {
+        prof->ssh_tunnel_enabled = !prof->ssh_tunnel_enabled;
+    }
     if (set_protocol != 0 && prof) {
         prof->protocol_version = set_protocol;
     }
@@ -1018,6 +1119,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
     if (save_profile && prof && db) {
         prof->port = (uint16_t)atoi(s_port_str);
         prof->keepalive_secs = (uint16_t)atoi(s_ka_str);
+        prof->ssh_jump_port = (uint16_t)atoi(s_ssh_port_str);
         if (db_save_profile(db, prof)) {
             state->profile_save_flash_timer = 1.0f;
         }
@@ -1043,6 +1145,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
     if (connect_profile && prof) {
         prof->port = (uint16_t)atoi(s_port_str);
         prof->keepalive_secs = (uint16_t)atoi(s_ka_str);
+        prof->ssh_jump_port = (uint16_t)atoi(s_ssh_port_str);
         if (db) db_save_profile(db, prof);
         mqtt_client_disconnect(mqtt);
         MqttConnectOpts opts = {
@@ -1060,6 +1163,12 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
             .tls_client_key = prof->tls_client_key,
             .tls_version = prof->tls_version,
             .tls_verify = prof->tls_verify,
+            .ssh_tunnel_enabled = prof->ssh_tunnel_enabled,
+            .ssh_jump_host = prof->ssh_jump_host,
+            .ssh_jump_port = prof->ssh_jump_port,
+            .ssh_jump_user = prof->ssh_jump_user[0] ? prof->ssh_jump_user : NULL,
+            .ssh_jump_key_path = prof->ssh_jump_key_path[0] ? prof->ssh_jump_key_path : NULL,
+            .ssh_jump_password = prof->ssh_jump_password[0] ? prof->ssh_jump_password : NULL,
         };
         if (mqtt_client_connect(mqtt, &opts)) {
             strncpy(state->broker_host, prof->host, sizeof(state->broker_host) - 1);

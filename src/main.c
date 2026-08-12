@@ -355,6 +355,8 @@ int main(void) {
             }
         }
 
+        mqtt_client_poll_ssh_tunnel(mqtt);
+
         if (mqtt_client_is_connected(mqtt)) {
             state.conn_state = CONN_CONNECTED;
         } else if (mqtt_client_is_connecting(mqtt)) {

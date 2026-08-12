@@ -12,6 +12,7 @@ void broker_profile_init_default(BrokerProfile* profile) {
     profile->keepalive_secs = 60;
     profile->tls_version = 0;
     profile->tls_verify = true;
+    profile->ssh_jump_port = 22;
     profile->subscriptions[0].topic[0] = '#';
     profile->subscriptions[0].topic[1] = '\0';
     profile->subscriptions[0].qos = 1;
