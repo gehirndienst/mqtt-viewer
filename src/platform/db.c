@@ -49,7 +49,18 @@ static const char* SCHEMA_SQL = "PRAGMA journal_mode=WAL;"
                                 "CREATE TABLE IF NOT EXISTS settings ("
                                 "    key TEXT PRIMARY KEY,"
                                 "    value TEXT"
-                                ");";
+                                ");"
+                                "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5("
+                                "    topic, payload, content='messages', content_rowid='id'"
+                                ");"
+                                "CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN"
+                                "    INSERT INTO messages_fts(rowid, topic, payload)"
+                                "    VALUES (new.id, new.topic, CAST(new.payload AS TEXT));"
+                                "END;"
+                                "CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN"
+                                "    INSERT INTO messages_fts(messages_fts, rowid, topic, payload)"
+                                "    VALUES ('delete', old.id, old.topic, CAST(old.payload AS TEXT));"
+                                "END;";
 
 
 Db* db_open(const char* db_path) {
@@ -84,6 +95,21 @@ Db* db_open(const char* db_path) {
     sqlite3_exec(p->db, "ALTER TABLE profiles ADD COLUMN ssh_jump_user TEXT DEFAULT '';", NULL, NULL, NULL);
     sqlite3_exec(p->db, "ALTER TABLE profiles ADD COLUMN ssh_jump_key_path TEXT DEFAULT '';", NULL, NULL, NULL);
     sqlite3_exec(p->db, "ALTER TABLE profiles ADD COLUMN ssh_jump_password TEXT DEFAULT '';", NULL, NULL, NULL);
+
+    // Backfill the FTS index for rows written before messages_fts existed (or by an older build)
+    if (!db_get_setting(p, "messages_fts_backfilled", NULL)) {
+        char* fts_errmsg = NULL;
+        rc = sqlite3_exec(p->db,
+                          "INSERT INTO messages_fts(rowid, topic, payload)"
+                          " SELECT id, topic, CAST(payload AS TEXT) FROM messages;",
+                          NULL, NULL, &fts_errmsg);
+        if (rc != SQLITE_OK) {
+            LOG_WARN("db_open: messages_fts backfill failed: %s", fts_errmsg ? fts_errmsg : "unknown");
+            sqlite3_free(fts_errmsg);
+        } else {
+            db_set_setting(p, "messages_fts_backfilled", "1");
+        }
+    }
 
     LOG_INFO("db_open: opened '%s'", db_path);
     return p;
@@ -436,6 +462,103 @@ int db_load_messages(Db* db, MessageRecord* records, int max_count) {
             r->preview[prev_len] = '\0';
         }
         count++;
+    }
+
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+static void build_fts_query(const char* input, char* out, size_t out_cap) {
+    if (out_cap == 0) return;
+    size_t oi = 0;
+    bool first_word = true;
+    const char* p = input;
+    while (*p != '\0') {
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p == '\0') break;
+
+        if (!first_word && oi + 1 < out_cap) out[oi++] = ' ';
+        first_word = false;
+
+        if (oi + 1 < out_cap) out[oi++] = '"';
+        while (*p != '\0' && *p != ' ' && *p != '\t') {
+            if (*p == '"') {
+                if (oi + 2 < out_cap) {
+                    out[oi++] = '"';
+                    out[oi++] = '"';
+                }
+            } else if (oi + 1 < out_cap) {
+                out[oi++] = *p;
+            }
+            p++;
+        }
+        if (oi + 1 < out_cap) out[oi++] = '"';
+    }
+
+    // pref-match the last word (the one the user may still be typing)
+    if (oi > 0 && oi + 1 < out_cap) out[oi++] = '*';
+
+    out[oi] = '\0';
+}
+
+int db_search_messages(Db* db, const char* query, MessageRecord* results, int max_count) {
+    if (!db || !query || !results || max_count <= 0) return 0;
+
+    while (*query == ' ' || *query == '\t') query++;
+    if (*query == '\0') return 0;
+
+    char fts_query[600];
+    build_fts_query(query, fts_query, sizeof(fts_query));
+
+    const char* sql = "SELECT m.topic, m.qos, m.retained, m.timestamp_us, m.broker_id, m.payload"
+                      " FROM messages_fts"
+                      " JOIN messages m ON m.id = messages_fts.rowid"
+                      " WHERE messages_fts MATCH ?1"
+                      " ORDER BY rank"
+                      " LIMIT ?2;";
+
+    sqlite3_stmt* stmt = NULL;
+    int rc = sqlite3_prepare_v2(db->db, sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        LOG_ERROR("db_search_messages: prepare failed: %s", sqlite3_errmsg(db->db));
+        return -1;
+    }
+
+    sqlite3_bind_text(stmt, 1, fts_query, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 2, max_count);
+
+    int count = 0;
+    while (count < max_count && (rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        MessageRecord* r = &results[count];
+        memset(r, 0, sizeof(*r));
+
+        const char* topic = (const char*)sqlite3_column_text(stmt, 0);
+        if (topic) {
+            strncpy(r->topic, topic, sizeof(r->topic) - 1);
+            r->topic[sizeof(r->topic) - 1] = '\0';
+        }
+        r->qos = (uint8_t)sqlite3_column_int(stmt, 1);
+        r->retained = sqlite3_column_int(stmt, 2) != 0;
+        r->timestamp_us = (uint64_t)sqlite3_column_int64(stmt, 3);
+        r->broker_id = (uint32_t)sqlite3_column_int64(stmt, 4);
+
+        // payload intentionally left NULL/0 - only the sanitized preview is populated
+        const void* blob = sqlite3_column_blob(stmt, 5);
+        int blob_len = sqlite3_column_bytes(stmt, 5);
+        uint32_t prev_len = (uint32_t)(blob_len < (int)(MSG_PREVIEW_LEN - 1) ? blob_len : (int)(MSG_PREVIEW_LEN - 1));
+        for (uint32_t pi = 0; pi < prev_len; pi++) {
+            unsigned char c = ((const unsigned char*)blob)[pi];
+            r->preview[pi] = (c < 0x20 || c == 0x7f) ? ' ' : (char)c;
+        }
+        r->preview[prev_len] = '\0';
+
+        count++;
+    }
+
+    if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
+        LOG_ERROR("db_search_messages: step failed: %s", sqlite3_errmsg(db->db));
+        sqlite3_finalize(stmt);
+        return -1;
     }
 
     sqlite3_finalize(stmt);

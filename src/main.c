@@ -97,6 +97,7 @@ int main(void) {
 
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
+
         // EWMA of frame time for UI refresh throttling
         frame_time_avg = frame_time_avg * 0.95f + dt * 0.05f;
         float ui_tick_seconds = 7.0f * frame_time_avg;
@@ -428,14 +429,15 @@ int main(void) {
                          },
                  }) {
                 // Left column: tree on top, chart panel stacked underneath when at least one series is active
+                bool inspector_open = state.selected_topic || state.inspector_frozen;
                 CLAY(CLAY_ID("LeftColumn"),
                      {
                          .layout =
                              {
                                  .sizing =
                                      {
-                                         state.selected_topic ? CLAY_SIZING_PERCENT(state.tree_width_ratio)
-                                                              : CLAY_SIZING_GROW(0),
+                                         inspector_open ? CLAY_SIZING_PERCENT(state.tree_width_ratio)
+                                                        : CLAY_SIZING_GROW(0),
                                          CLAY_SIZING_GROW(0),
                                      },
                                  .layoutDirection = CLAY_TOP_TO_BOTTOM,
@@ -449,12 +451,12 @@ int main(void) {
                                      .layoutDirection = CLAY_TOP_TO_BOTTOM,
                                  },
                          }) {
-                        tree_widget_render(&state);
+                        tree_widget_render(&state, db);
                     }
                     chart_panel_render(&state);
                 }
 
-                if (state.selected_topic) {
+                if (inspector_open) {
                     inspector_widget_render(&state);
                 }
             }

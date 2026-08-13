@@ -83,6 +83,20 @@ int db_load_messages(Db* db, MessageRecord* records, int max_count);
 bool db_trim_messages(Db* db, int max_rows);
 
 /**
+ * @brief Full-text search over all stored messages (topic + payload), ranked by relevance.
+ *
+ * @p query's words must all appear somewhere in the topic or payload (any order), with the
+ * last word treated as a live prefix (so "conn" matches "connection" while typing). Special
+ * FTS5 syntax characters in @p query are treated as literal text, not query operators.
+ *
+ * Returned records never have `payload` populated (always NULL/0) - only `preview` is
+ * filled in, so callers don't need to free() anything.
+ *
+ * @return Number of records found, or -1 on error.
+ */
+int db_search_messages(Db* db, const char* query, MessageRecord* results, int max_count);
+
+/**
  * @brief UTIL: Resolve the platform-appropriate database file path into @p out.
  *
  * Priority: $MQTT_VIEWER_DB_PATH - macOS Application Support / XDG data dir.

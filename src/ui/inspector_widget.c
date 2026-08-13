@@ -26,13 +26,6 @@
 #define PP_GUTTER_W 18
 
 typedef enum {
-    VIEW_JSON,
-    VIEW_TEXT,
-    VIEW_HEX,
-    VIEW_HISTORY,
-} ViewMode;
-
-typedef enum {
     DIFF_UNCHANGED,
     DIFF_ADDED,
     DIFF_REMOVED,
@@ -101,9 +94,7 @@ static char s_hist_exp_line_ids[JSON_PP_MAX_LINES][32];
 // mutual recursion between pp_format_* functions
 static void pp_format_value(const char* key, Clay_Color key_color);
 
-static void render_text_view(TopicNode* node) {
-    // Preview is already sanitized (control chars - space) by main.c
-    const char* src = node->last_payload_preview;
+static void render_text_view(const char* src) {
     if (src[0] == '\0') {
         CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
         return;
@@ -143,8 +134,7 @@ static int format_hex_line(char* buf, int buf_size, const char* src, int len, in
     return pos;
 }
 
-static void render_hex_view(TopicNode* node) {
-    const char* src = node->last_payload_preview;
+static void render_hex_view(const char* src) {
     int len = (int)strlen(src);
     if (len == 0) {
         CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
@@ -591,7 +581,7 @@ static void render_json_diff_view(TopicNode* node) {
     }
     if (src[0] != '{' && src[0] != '[' && src[0] != '"' && !payload_is_numeric_scalar(src)) {
         // Diff is JSON-only by design - fallback to plain text view for non-JSON payloads
-        render_text_view(node);
+        render_text_view(src);
         return;
     }
 
@@ -603,7 +593,7 @@ static void render_json_diff_view(TopicNode* node) {
     s_pp_line_count = 0;
     pp_format_value("", THEME_TEXT_MUTED);
     if (s_pp_line_count == 0) {
-        render_text_view(node);
+        render_text_view(src);
         return;
     }
 
@@ -681,14 +671,13 @@ static void render_json_diff_view(TopicNode* node) {
     }
 }
 
-static void render_json_view(TopicNode* node) {
-    const char* src = node->last_payload_preview;
+static void render_json_view(const char* src) {
     if (src[0] == '\0') {
         CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
         return;
     }
     if (src[0] != '{' && src[0] != '[' && src[0] != '"' && !payload_is_numeric_scalar(src)) {
-        render_text_view(node);
+        render_text_view(src);
         return;
     }
 
@@ -701,7 +690,7 @@ static void render_json_view(TopicNode* node) {
     pp_format_value("", THEME_TEXT_MUTED);
 
     if (s_pp_line_count == 0) {
-        render_text_view(node);
+        render_text_view(src);
         return;
     }
 
@@ -989,7 +978,253 @@ static void render_history_view(AppState* state, TopicNode* node) {
     }
 }
 
+static void render_frozen_inspector(AppState* state) {
+    bool close_requested = false;
+
+    s_copied_timer -= GetFrameTime();
+    if (s_copied_timer <= 0.0f) s_copied_btn = -1;
+
+    static char meta[128];
+    time_t secs = (time_t)(state->frozen_message.timestamp_us / 1000000ULL);
+    struct tm tm_info;
+    localtime_r(&secs, &tm_info);
+    char ts_buf[16];
+    strftime(ts_buf, sizeof(ts_buf), "%H:%M:%S", &tm_info);
+    snprintf(meta, sizeof(meta), "%s \xc2\xb7 QoS %u%s", ts_buf, (unsigned)state->frozen_message.qos,
+             state->frozen_message.retained ? " \xc2\xb7 Retained" : "");
+
+    CLAY(CLAY_ID("Inspector"),
+         {
+             .layout =
+                 {
+                     .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)},
+                     .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                 },
+             .backgroundColor = THEME_BG_PANEL,
+             .border = {.width = {.left = 1}, .color = THEME_BORDER},
+         }) {
+        CLAY(CLAY_ID("InspectorHeader"),
+             {
+                 .layout =
+                     {
+                         .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                         .padding = {14, 14, 10, 10},
+                         .childGap = 8,
+                         .childAlignment = {.y = CLAY_ALIGN_Y_CENTER},
+                     },
+                 .border = {.width = {.bottom = 1}, .color = THEME_BORDER},
+             }) {
+            CLAY(CLAY_ID("InspectorTopicPath"),
+                 {
+                     .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
+                     .clip = {.horizontal = true},
+                 }) {
+                Clay_String path_str = {.length = (int32_t)strlen(state->frozen_message.topic),
+                                        .chars = state->frozen_message.topic};
+                CLAY_TEXT(path_str,
+                          CLAY_TEXT_CONFIG({
+                              .fontSize = 16,
+                              .fontId = FONT_DEFAULT,
+                              .textColor = THEME_TEXT_PRIMARY,
+                              .wrapMode = CLAY_TEXT_WRAP_NONE,
+                          }));
+            }
+            CLAY_TEXT(CLAY_STRING("\xe2\x9d\x84 Frozen"),
+                      CLAY_TEXT_CONFIG({
+                          .fontSize = 11,
+                          .fontId = FONT_DEFAULT,
+                          .textColor = THEME_ACCENT_BLUE,
+                      }));
+            CLAY(CLAY_ID("InspectorCloseBtn"),
+                 {
+                     .layout = {.padding = {8, 8, 4, 4}},
+                     .backgroundColor = THEME_BG_BUTTON,
+                     .cornerRadius = CLAY_CORNER_RADIUS(3),
+                 }) {
+                CLAY_TEXT(CLAY_STRING("\xc3\x97"),
+                          CLAY_TEXT_CONFIG({
+                              .fontSize = 12,
+                              .fontId = FONT_DEFAULT,
+                              .textColor = THEME_TEXT_MUTED,
+                          }));
+            }
+        }
+
+        CLAY(CLAY_ID("LatestValue"),
+             {
+                 .layout =
+                     {
+                         .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                         .padding = {14, 14, 12, 12},
+                     },
+                 .backgroundColor = THEME_BG_LATEST,
+                 .border = {.width = {.bottom = 1}, .color = THEME_BORDER},
+             }) {
+            Clay_String meta_str = {.length = (int32_t)strlen(meta), .chars = meta};
+            CLAY_TEXT(meta_str,
+                      CLAY_TEXT_CONFIG({
+                          .fontSize = 11,
+                          .fontId = FONT_DEFAULT,
+                          .textColor = THEME_ACCENT_BLUE,
+                      }));
+        }
+
+        // History doesn't apply to a single frozen message
+        CLAY(CLAY_ID("ViewTabs"),
+             {
+                 .layout =
+                     {
+                         .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                         .childGap = 0,
+                     },
+                 .border = {.width = {.bottom = 1}, .color = THEME_BORDER},
+             }) {
+            const char* tab_names[] = {"JSON", "Text", "Hex"};
+            ViewMode modes[] = {VIEW_JSON, VIEW_TEXT, VIEW_HEX};
+            static char tab_ids[3][32];
+            for (int t = 0; t < 3; t++) {
+                bool active = (state->inspector_view == (int)modes[t]);
+                snprintf(tab_ids[t], sizeof(tab_ids[t]), "FTab_%d", t);
+                Clay_String tab_id_str = {.length = (int32_t)strlen(tab_ids[t]), .chars = tab_ids[t]};
+                CLAY(CLAY_SID(tab_id_str), {
+                    .layout = {.padding = {14, 14, 8, 8}},
+                    .backgroundColor = active ? THEME_BG_BUTTON : (Clay_Color){0},
+                    .border = active ? (Clay_BorderElementConfig){
+                        .width = {.bottom = 2}, .color = THEME_ACCENT_BLUE,
+                    }
+                                     : (Clay_BorderElementConfig){0},
+                }) {
+                    Clay_String ts = {.length = (int32_t)strlen(tab_names[t]), .chars = tab_names[t]};
+                    CLAY_TEXT(ts,
+                              CLAY_TEXT_CONFIG({
+                                  .fontSize = 12,
+                                  .fontId = FONT_DEFAULT,
+                                  .textColor = active ? THEME_TEXT_PRIMARY : THEME_TEXT_MUTED,
+                              }));
+                }
+                if (Clay_PointerOver(Clay_GetElementId(tab_id_str)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                    state->inspector_view = modes[t];
+                }
+            }
+            // fallback to json rather than rendering a blank/mismatched view
+            if (state->inspector_view == VIEW_HISTORY) state->inspector_view = VIEW_JSON;
+        }
+
+        CLAY(CLAY_ID("PayloadView"),
+             {
+                 .layout =
+                     {
+                         .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)},
+                         .padding = {14, 14, 12, 12},
+                         .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                         .childGap = 2,
+                     },
+                 .clip = {.horizontal = true, .vertical = true, .childOffset = Clay_GetScrollOffset()},
+             }) {
+            switch (state->inspector_view) {
+                case VIEW_JSON:
+                    render_json_view(state->frozen_message.preview);
+                    break;
+                case VIEW_TEXT:
+                    render_text_view(state->frozen_message.preview);
+                    break;
+                case VIEW_HEX:
+                    render_hex_view(state->frozen_message.preview);
+                    break;
+                case VIEW_HISTORY:
+                    break; // unreachable - coerced to VIEW_JSON above
+            }
+        }
+
+        CLAY(CLAY_ID("InspectorActions"),
+             {
+                 .layout =
+                     {
+                         .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                         .padding = {14, 14, 8, 8},
+                         .childGap = 8,
+                     },
+                 .border = {.width = {.top = 1}, .color = THEME_BORDER},
+             }) {
+            const char* actions[] = {"Copy Payload", "Copy Topic", "Publish Here"};
+            const char* actions_done[] = {"Copied!", "Copied!", "Publish Here"};
+            static char act_ids[3][32];
+            for (int a = 0; a < 3; a++) {
+                bool flashing = (s_copied_btn == a);
+                snprintf(act_ids[a], sizeof(act_ids[a]), "FAction_%d", a);
+                Clay_String act_id_str = {.length = (int32_t)strlen(act_ids[a]), .chars = act_ids[a]};
+                CLAY(CLAY_SID(act_id_str), {
+                    .layout = {.padding = {10, 10, 4, 4}},
+                    .backgroundColor = flashing ? THEME_BG_HOVER : THEME_BG_BUTTON,
+                    .cornerRadius = CLAY_CORNER_RADIUS(4),
+                    .border = flashing ? (Clay_BorderElementConfig){
+                        .width = CLAY_BORDER_OUTSIDE(1), .color = THEME_ACCENT_BLUE,
+                    }
+                                       : (Clay_BorderElementConfig){0},
+                }) {
+                    const char* label = flashing ? actions_done[a] : actions[a];
+                    Clay_String as = {.length = (int32_t)strlen(label), .chars = label};
+                    CLAY_TEXT(as,
+                              CLAY_TEXT_CONFIG({
+                                  .fontSize = 12,
+                                  .fontId = FONT_DEFAULT,
+                                  .textColor = flashing ? THEME_ACCENT_BLUE : THEME_TEXT_MUTED,
+                              }));
+                }
+            }
+        }
+    }
+
+    if (IsKeyPressed(KEY_ESCAPE) && !state->profile_dialog_open && !state->publish_panel_open &&
+        !state->context_menu_open) {
+        close_requested = true;
+    }
+    if (Clay_PointerOver(Clay_GetElementId(CLAY_STRING("InspectorCloseBtn"))) &&
+        IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        close_requested = true;
+    }
+    if (close_requested) {
+        state->inspector_frozen = false;
+    }
+
+    static const char* s_fact_ids[3] = {"FAction_0", "FAction_1", "FAction_2"};
+    for (int a = 0; a < 3; a++) {
+        Clay_String aid = {.length = (int32_t)strlen(s_fact_ids[a]), .chars = s_fact_ids[a]};
+        if (Clay_PointerOver(Clay_GetElementId(aid)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            switch (a) {
+                case 0: // Copy Payload
+                    if (state->inspector_view == VIEW_HEX) {
+                        static char hex_copy_buf[5248];
+                        build_hex_dump_str(state->frozen_message.preview, (int)strlen(state->frozen_message.preview),
+                                           hex_copy_buf, sizeof(hex_copy_buf));
+                        SetClipboardText(hex_copy_buf);
+                    } else {
+                        SetClipboardText(state->frozen_message.preview);
+                    }
+                    break;
+                case 1: // Copy Topic
+                    SetClipboardText(state->frozen_message.topic);
+                    break;
+                case 2: // Publish Here
+                    strncpy(state->publish_topic, state->frozen_message.topic, sizeof(state->publish_topic) - 1);
+                    state->publish_topic[sizeof(state->publish_topic) - 1] = '\0';
+                    state->publish_panel_open = true;
+                    break;
+                default:
+                    break;
+            }
+            s_copied_btn = a;
+            s_copied_timer = 1.0f;
+        }
+    }
+}
+
 void inspector_widget_render(AppState* state) {
+    if (state->inspector_frozen) {
+        render_frozen_inspector(state);
+        return;
+    }
+
     TopicNode* node = state->selected_topic;
     if (!node) return;
 
@@ -1235,14 +1470,14 @@ void inspector_widget_render(AppState* state) {
                     if (state->diff_enabled) {
                         render_json_diff_view(node);
                     } else {
-                        render_json_view(node);
+                        render_json_view(node->last_payload_preview);
                     }
                     break;
                 case VIEW_TEXT:
-                    render_text_view(node);
+                    render_text_view(node->last_payload_preview);
                     break;
                 case VIEW_HEX:
-                    render_hex_view(node);
+                    render_hex_view(node->last_payload_preview);
                     break;
                 case VIEW_HISTORY:
                     render_history_view(state, node);

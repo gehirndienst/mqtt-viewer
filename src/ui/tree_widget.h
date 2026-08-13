@@ -4,13 +4,16 @@
 #define TREE_WIDGET_H
 
 #include "model/app_state.h"
+#include "platform/db.h"
 
 /**
  * @brief Render the topic tree widget into the current Clay layout.
  *
- * Handles keyboard navigation and selection. Must be called inside an active
- * Clay layout pass (between Clay_BeginLayout and Clay_EndLayout).
+ * Handles keyboard navigation and selection. In message-search mode
+ * (state->topic_filter_search_mode), queries @p db instead of rendering the tree.
+ * Must be called inside an active Clay layout pass (between Clay_BeginLayout and
+ * Clay_EndLayout).
  */
-void tree_widget_render(AppState* state);
+void tree_widget_render(AppState* state, Db* db);
 
 #endif

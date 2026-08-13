@@ -3,11 +3,14 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "clay.h"
 #include "raylib.h"
 
 #include "model/app_state.h"
+#include "platform/db.h"
+#include "ui/inspector_widget.h"
 #include "ui/text_input.h"
 #include "ui/theme.h"
 #include "ui/tree_widget.h"
@@ -15,6 +18,18 @@
 // Tree row indentation: base inset plus a fixed step per nesting level (px).
 #define TREE_INDENT_BASE 16
 #define TREE_INDENT_STEP 20
+
+#define SEARCH_MAX_RESULTS 50
+
+static MessageRecord s_search_results[SEARCH_MAX_RESULTS];
+static int s_search_result_count = 0;
+static int s_search_expanded_idx = -1; // which result row is expanded in place, -1 = none
+static char s_last_search_query[256] = "";
+static bool s_last_search_mode = false;
+static char s_search_row_ids[SEARCH_MAX_RESULTS][32];
+static char s_search_open_ids[SEARCH_MAX_RESULTS][32];
+static char s_search_ts_bufs[SEARCH_MAX_RESULTS][16];
+static char s_search_meta_bufs[SEARCH_MAX_RESULTS][32];
 
 // Returns true if node's full path or any descendant's path contains filter
 static bool node_matches_filter(TopicNode* node, const char* filter) {
@@ -229,8 +244,10 @@ static void render_node(AppState* state, TopicNode* node, int depth) {
             } else if (has_messages) {
                 // Anywhere else on the node row - open inspector
                 state->selected_topic = node;
+                state->inspector_frozen = false;
             } else if (has_children) {
                 state->selected_topic = node;
+                state->inspector_frozen = false;
                 if (!node->expanded) node->expanded = true;
             }
         }
@@ -250,7 +267,173 @@ static void render_node(AppState* state, TopicNode* node, int depth) {
     }
 }
 
-void tree_widget_render(AppState* state) {
+static void render_search_results(AppState* state) {
+    if (state->topic_filter[0] == '\0') {
+        CLAY(CLAY_ID("SearchHint"),
+             {
+                 .layout =
+                     {
+                         .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                         .padding = {16, 16, 40, 40},
+                         .childAlignment = {.x = CLAY_ALIGN_X_CENTER},
+                     },
+             }) {
+            CLAY_TEXT(CLAY_STRING("Type to search all stored messages by topic or payload."), THEME_TEXT_SMALL);
+        }
+        return;
+    }
+
+    if (s_search_result_count == 0) {
+        CLAY(CLAY_ID("SearchEmpty"),
+             {
+                 .layout =
+                     {
+                         .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                         .padding = {16, 16, 40, 40},
+                         .childAlignment = {.x = CLAY_ALIGN_X_CENTER},
+                     },
+             }) {
+            CLAY_TEXT(CLAY_STRING("No matches."), THEME_TEXT_SMALL);
+        }
+        return;
+    }
+
+    for (int i = 0; i < s_search_result_count; i++) {
+        MessageRecord* r = &s_search_results[i];
+        bool expanded = (i == s_search_expanded_idx);
+
+        snprintf(s_search_row_ids[i], sizeof(s_search_row_ids[i]), "SR_%d", i);
+        snprintf(s_search_open_ids[i], sizeof(s_search_open_ids[i]), "SROpen_%d", i);
+        time_t secs = (time_t)(r->timestamp_us / 1000000ull);
+        struct tm tm_info;
+        localtime_r(&secs, &tm_info);
+        strftime(s_search_ts_bufs[i], sizeof(s_search_ts_bufs[i]), "%H:%M:%S", &tm_info);
+        snprintf(s_search_meta_bufs[i], sizeof(s_search_meta_bufs[i]), "Q%u%s", r->qos, r->retained ? " R" : "");
+
+        Clay_String row_cs = {.length = (int32_t)strlen(s_search_row_ids[i]), .chars = s_search_row_ids[i]};
+        Clay_String open_cs = {.length = (int32_t)strlen(s_search_open_ids[i]), .chars = s_search_open_ids[i]};
+        Clay_String topic_cs = {.length = (int32_t)strlen(r->topic), .chars = r->topic};
+        Clay_String meta_cs = {.length = (int32_t)strlen(s_search_meta_bufs[i]), .chars = s_search_meta_bufs[i]};
+        Clay_String ts_cs = {.length = (int32_t)strlen(s_search_ts_bufs[i]), .chars = s_search_ts_bufs[i]};
+        Clay_String prev_cs = {.length = (int32_t)strlen(r->preview), .chars = r->preview};
+
+        char hdr_id[40], topic_wrap_id[40], prev_wrap_id[40];
+        snprintf(hdr_id, sizeof(hdr_id), "SRHdr_%d", i);
+        snprintf(topic_wrap_id, sizeof(topic_wrap_id), "SRTopic_%d", i);
+        snprintf(prev_wrap_id, sizeof(prev_wrap_id), "SRPrev_%d", i);
+        Clay_String hdr_cs = {.length = (int32_t)strlen(hdr_id), .chars = hdr_id};
+        Clay_String topic_wrap_cs = {.length = (int32_t)strlen(topic_wrap_id), .chars = topic_wrap_id};
+        Clay_String prev_wrap_cs = {.length = (int32_t)strlen(prev_wrap_id), .chars = prev_wrap_id};
+
+        CLAY(CLAY_SID(row_cs),
+             {
+                 .layout =
+                     {
+                         .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                         .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                         .padding = {12, 12, 6, 6},
+                         .childGap = 2,
+                     },
+                 .backgroundColor = expanded ? THEME_BG_HISTORY_EXPANDED : (Clay_Color){0},
+                 .border = expanded ? (Clay_BorderElementConfig){.width = {.left = 3}, .color = THEME_ACCENT_BLUE}
+                                    : (Clay_BorderElementConfig){0},
+             }) {
+            CLAY(CLAY_SID(hdr_cs),
+                 {
+                     .layout =
+                         {
+                             .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                             .childGap = 8,
+                             .childAlignment = {.y = CLAY_ALIGN_Y_CENTER},
+                         },
+                 }) {
+                CLAY_TEXT(expanded ? CLAY_STRING("v") : CLAY_STRING(">"),
+                          CLAY_TEXT_CONFIG({
+                              .fontSize = 10,
+                              .fontId = FONT_DEFAULT,
+                              .textColor = expanded ? THEME_ACCENT_BLUE : THEME_TEXT_DIM,
+                          }));
+                CLAY(CLAY_SID(topic_wrap_cs),
+                     {
+                         .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
+                     }) {
+                    CLAY_TEXT(topic_cs,
+                              CLAY_TEXT_CONFIG({
+                                  .fontSize = 13,
+                                  .fontId = FONT_DEFAULT,
+                                  .textColor = expanded ? THEME_LIGHT_BLUE : THEME_TEXT_PRIMARY,
+                              }));
+                }
+                CLAY_TEXT(meta_cs,
+                          CLAY_TEXT_CONFIG({
+                              .fontSize = 11,
+                              .fontId = FONT_MONO,
+                              .textColor = THEME_ACCENT_BLUE_BRIGHT,
+                          }));
+                CLAY_TEXT(ts_cs,
+                          CLAY_TEXT_CONFIG({
+                              .fontSize = 11,
+                              .fontId = FONT_MONO,
+                              .textColor = THEME_TEXT_DIM,
+                          }));
+                CLAY(CLAY_SID(open_cs),
+                     {
+                         .layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)}, .padding = {6, 6, 2, 2}},
+                         .backgroundColor = THEME_BG_BUTTON,
+                         .cornerRadius = CLAY_CORNER_RADIUS(3),
+                     }) {
+                    CLAY_TEXT(CLAY_STRING("Open Topic"),
+                              CLAY_TEXT_CONFIG({
+                                  .fontSize = 10,
+                                  .fontId = FONT_DEFAULT,
+                                  .textColor = THEME_TEXT_MUTED,
+                              }));
+                }
+            }
+            // a preview of THIS matched message: collapsed = one truncated line, expanded = full wrapped text
+            CLAY(CLAY_SID(prev_wrap_cs),
+                 {
+                     .layout =
+                         {
+                             .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                             .padding = {18, 0, 0, 0},
+                         },
+                     .clip = {.horizontal = !expanded},
+                 }) {
+                CLAY_TEXT(prev_cs,
+                          CLAY_TEXT_CONFIG({
+                              .fontSize = 11,
+                              .fontId = FONT_MONO,
+                              .textColor = THEME_TEXT_DIM,
+                              .wrapMode = expanded ? CLAY_TEXT_WRAP_WORDS : CLAY_TEXT_WRAP_NONE,
+                          }));
+            }
+        }
+
+        bool open_clicked = Clay_PointerOver(Clay_GetElementId(open_cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+        bool row_hovered = Clay_PointerOver(Clay_GetElementId(row_cs));
+        if (open_clicked) {
+            TopicNode* node = topic_tree_find(&state->topic_tree, r->topic);
+            if (node) {
+                state->selected_topic = node;
+                state->inspector_frozen = false;
+                state->inspector_view = VIEW_HISTORY;
+            }
+        } else if (row_hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            bool now_expanding = !expanded;
+            s_search_expanded_idx = now_expanding ? i : -1;
+            if (now_expanding) {
+                state->frozen_message = *r; // payload is always NULL on search results - no ownership to copy
+                state->inspector_frozen = true;
+                state->selected_topic = NULL; // frozen and live inspector views are mutually exclusive
+            } else {
+                state->inspector_frozen = false;
+            }
+        }
+    }
+}
+
+void tree_widget_render(AppState* state, Db* db) {
     if (state->topic_filter_focused && !state->publish_panel_open && !state->context_menu_open &&
         !state->profile_dialog_open) {
         if (text_input_select_all_pressed()) {
@@ -305,6 +488,17 @@ void tree_widget_render(AppState* state) {
         state->topic_filter_all_selected = false;
     }
 
+    // Re-run the search only when the query text changed or we just switched into search mode
+    bool search_mode = state->topic_filter_search_mode;
+    if (search_mode && (!s_last_search_mode || strcmp(state->topic_filter, s_last_search_query) != 0)) {
+        strncpy(s_last_search_query, state->topic_filter, sizeof(s_last_search_query) - 1);
+        s_last_search_query[sizeof(s_last_search_query) - 1] = '\0';
+        int n = db_search_messages(db, state->topic_filter, s_search_results, SEARCH_MAX_RESULTS);
+        s_search_result_count = n > 0 ? n : 0;
+        s_search_expanded_idx = -1; // stale index into the old result set otherwise
+    }
+    s_last_search_mode = search_mode;
+
     bool filter_selected = state->topic_filter_focused && state->topic_filter_all_selected;
 
     CLAY(CLAY_ID("TreeFilter"),
@@ -333,6 +527,19 @@ void tree_widget_render(AppState* state) {
                          .color = state->topic_filter_focused ? THEME_ACCENT_BLUE : THEME_BORDER,
                      },
              }) {
+            CLAY(CLAY_ID("FilterModeBtn"),
+                 {
+                     .layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)}, .padding = {6, 6, 2, 2}},
+                     .backgroundColor = search_mode ? THEME_BG_SELECTED : THEME_BG_BUTTON,
+                     .cornerRadius = CLAY_CORNER_RADIUS(3),
+                 }) {
+                CLAY_TEXT(search_mode ? CLAY_STRING("Messages") : CLAY_STRING("Topics"),
+                          CLAY_TEXT_CONFIG({
+                              .fontSize = 11,
+                              .fontId = FONT_DEFAULT,
+                              .textColor = search_mode ? THEME_TEXT_PRIMARY : THEME_TEXT_MUTED,
+                          }));
+            }
             CLAY(CLAY_ID("FilterText"),
                  {
                      .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
@@ -363,7 +570,8 @@ void tree_widget_render(AppState* state) {
                                   .textColor = THEME_TEXT_PRIMARY,
                               }));
                 } else {
-                    CLAY_TEXT(CLAY_STRING("Filter topics..."), THEME_TEXT_SMALL);
+                    CLAY_TEXT(search_mode ? CLAY_STRING("Search messages...") : CLAY_STRING("Filter topics..."),
+                              THEME_TEXT_SMALL);
                 }
             }
             if (state->topic_filter[0] != '\0') {
@@ -387,8 +595,11 @@ void tree_widget_render(AppState* state) {
     bool filter_hovered = Clay_PointerOver(Clay_GetElementId(CLAY_STRING("FilterInput")));
     bool clear_hovered =
         state->topic_filter[0] != '\0' && Clay_PointerOver(Clay_GetElementId(CLAY_STRING("FilterClearBtn")));
+    bool mode_btn_hovered = Clay_PointerOver(Clay_GetElementId(CLAY_STRING("FilterModeBtn")));
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        if (clear_hovered) {
+        if (mode_btn_hovered) {
+            state->topic_filter_search_mode = !state->topic_filter_search_mode;
+        } else if (clear_hovered) {
             state->topic_filter[0] = '\0';
             state->topic_filter_focused = false;
         } else {
@@ -406,22 +617,26 @@ void tree_widget_render(AppState* state) {
                  },
              .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
          }) {
-        TopicTree* tree = &state->topic_tree;
-        for (uint32_t i = 0; i < tree->root_count; i++) {
-            render_node(state, tree->roots[i], 0);
-        }
+        if (search_mode) {
+            render_search_results(state);
+        } else {
+            TopicTree* tree = &state->topic_tree;
+            for (uint32_t i = 0; i < tree->root_count; i++) {
+                render_node(state, tree->roots[i], 0);
+            }
 
-        if (tree->root_count == 0) {
-            CLAY(CLAY_ID("TreeEmpty"),
-                 {
-                     .layout =
-                         {
-                             .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
-                             .padding = {16, 16, 40, 40},
-                             .childAlignment = {.x = CLAY_ALIGN_X_CENTER},
-                         },
-                 }) {
-                CLAY_TEXT(CLAY_STRING("No topics yet. Connect to a broker."), THEME_TEXT_SMALL);
+            if (tree->root_count == 0) {
+                CLAY(CLAY_ID("TreeEmpty"),
+                     {
+                         .layout =
+                             {
+                                 .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                                 .padding = {16, 16, 40, 40},
+                                 .childAlignment = {.x = CLAY_ALIGN_X_CENTER},
+                             },
+                     }) {
+                    CLAY_TEXT(CLAY_STRING("No topics yet. Connect to a broker."), THEME_TEXT_SMALL);
+                }
             }
         }
     }

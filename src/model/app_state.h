@@ -72,6 +72,7 @@ typedef struct {
     char topic_filter[256];
     bool topic_filter_focused;
     bool topic_filter_all_selected;
+    bool topic_filter_search_mode;
     float tree_width_ratio;
     bool diff_enabled;
 
@@ -97,6 +98,10 @@ typedef struct {
 
     // Inspector state
     int inspector_view; // active ViewMode tab (VIEW_JSON/TEXT/HEX/HISTORY)
+
+    // Frozen inspector: pins the Inspector pane to one specific historical message
+    bool inspector_frozen;
+    MessageRecord frozen_message;
 
     // Profiles
     BrokerProfile profiles[32];

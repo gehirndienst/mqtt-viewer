@@ -8,6 +8,13 @@
 
 #include "model/app_state.h"
 
+typedef enum {
+    VIEW_JSON,
+    VIEW_TEXT,
+    VIEW_HEX,
+    VIEW_HISTORY,
+} ViewMode;
+
 /**
  * @brief Render the message inspector panel for the selected topic.
  *

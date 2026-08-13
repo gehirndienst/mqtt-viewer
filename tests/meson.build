@@ -62,3 +62,10 @@ test_ssh_tunnel = executable('test_ssh_tunnel',
     include_directories : test_inc
 )
 test('ssh_tunnel', test_ssh_tunnel)
+
+test_db_search = executable('test_db_search',
+    'test_db_search.c', '../src/platform/db.c',
+    include_directories : test_inc,
+    dependencies : [sqlite3_dep, cjson_dep]
+)
+test('db_search', test_db_search)
