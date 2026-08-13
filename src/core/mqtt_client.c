@@ -286,7 +286,7 @@ bool mqtt_client_connect(MqttClient* client, const MqttConnectOpts* opts) {
     snprintf(buf, sizeof(buf), "Connecting to %s:%d...", dial_host, dial_port);
     connection_log_add(client->log, CONN_LOG_INFO, buf);
 
-    int rc = mosquitto_connect_async(client->mosq, dial_host, dial_port, opts->keepalive_secs);
+    int rc = mosquitto_connect(client->mosq, dial_host, dial_port, opts->keepalive_secs);
     if (rc != MOSQ_ERR_SUCCESS) {
         snprintf(buf, sizeof(buf), "Connect failed: %s", mosquitto_strerror(rc));
         connection_log_add(client->log, CONN_LOG_ERROR, buf);
