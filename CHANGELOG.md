@@ -2,6 +2,21 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-09-02
+
+### Added
+
+- Full-text search across stored messages: the tree's filter bar toggles between `Topics` and `Messages`, backed by an SQLite FTS5 index over topic and payload
+- New-message highlight in the topic tree
+- Connect through an SSH jump host: per-profile tunnel settings in the connection dialog
+- Selecting and copying in the connection log
+- Select-all (`Ctrl+A`) in text input fields
+
+### Fixed
+
+- The chart panel's `x` button did nothing once the topic inspector was closed
+- Topic-tree row highlights (selection and new-message) now run flush to the inspector edge instead of stopping short of it
+
 ## [1.0.2] - 2026-08-07
 
 ### Added
