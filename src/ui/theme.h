@@ -39,6 +39,8 @@
 // Border
 #define THEME_BORDER (Clay_Color){68, 68, 68, 255} // #444444
 #define THEME_BORDER_SUBTLE (Clay_Color){45, 45, 45, 255} // #2d2d2d — faint row separator
+#define THEME_BG_FLASH (Clay_Color){89, 85, 133, 255} // #595585 - new-message highlight (MQTT Explorer's updateDark)
+#define THEME_BG_FLASH_SUBTREE (Clay_Color){52, 50, 78, 255} // #34324e - dimmer highlight for ancestors of the topic
 
 // Semantic widget backgrounds
 #define THEME_BG_PLOT (Clay_Color){20, 22, 30, 255} // chart plot reservation

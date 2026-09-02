@@ -29,6 +29,7 @@ static TopicNode* node_new(TopicTree* tree, const char* segment, TopicNode* pare
     node->has_retained = false;
     node->expanded = false;
     node->last_message_ts = 0;
+    node->last_subtree_message_ts = 0;
     node->last_payload_preview[0] = '\0';
     node->subtree_count_str[0] = '\0';
     node->throughput = 0.0f;

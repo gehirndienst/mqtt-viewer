@@ -172,13 +172,18 @@ testenv only='':
     pub -t cars/car2/battery -m '{"soc":47,"health":"fair"}'
     if [ ! -f tests/env/pusher.pid ] || ! kill -0 "$(cat tests/env/pusher.pid)" 2>/dev/null; then
         (
+            tick=0
             while :; do
+                tick=$((tick + 1))
                 pub -t sensors/temp -q 1 -m "{\"v\":$((20 + RANDOM % 8)).$((RANDOM % 10))}" || break
                 pub -t sensors/hum -m "{\"v\":$((40 + RANDOM % 20))}" || break
                 pub -t factory/line1/temp -m "{\"v\":$((60 + RANDOM % 15)).$((RANDOM % 10))}" || break
                 pub -t factory/line1/rpm -m "$((1400 + RANDOM % 200))" || break
                 pub -t factory/line2/temp -m "{\"v\":$((55 + RANDOM % 20)).$((RANDOM % 10))}" || break
                 pub -t cars/car1/speed -m "$((RANDOM % 130))" || break
+                if [ $((tick % 16)) -eq 0 ]; then
+                    pub -t building/hvac/setpoint -m "{\"v\":$((18 + RANDOM % 5))}" || break
+                fi
                 sleep 0.5
             done
         ) >/dev/null 2>&1 &

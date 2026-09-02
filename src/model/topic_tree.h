@@ -21,6 +21,7 @@ typedef struct TopicNode {
     bool has_retained;
     bool expanded; // UI state: tree node expanded
     uint64_t last_message_ts; // microseconds
+    uint64_t last_subtree_message_ts; // microseconds; last message anywhere in this node's subtree
     uint32_t last_payload_len; // bytes
     uint8_t last_qos;
     char last_payload_preview[TOPIC_PREVIEW_LEN];

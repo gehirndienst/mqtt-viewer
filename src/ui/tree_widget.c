@@ -21,6 +21,39 @@
 
 #define SEARCH_MAX_RESULTS 50
 
+// New-message highlight
+#define TREE_FLASH_DURATION_US 500000ULL
+#define TREE_FLASH_SELECTION_GRACE_US 500000ULL
+
+// Ancestors of the updated topic get a calmer version: darker colour, no ramp/hold (so it doesn't blink), and a longer
+// fade-out
+#define TREE_FLASH_SUBTREE_DURATION_US 900000ULL
+
+// Highlight strength in [0,1] for a topic whose last message arrived at last_message_ts
+static float tree_flash_alpha(uint64_t now_us, uint64_t last_message_ts) {
+    if (last_message_ts == 0) return 0.0f;
+    if (last_message_ts >= now_us) return 1.0f;
+
+    uint64_t age = now_us - last_message_ts;
+    if (age >= TREE_FLASH_DURATION_US) return 0.0f;
+
+    float t = (float)age / (float)TREE_FLASH_DURATION_US;
+    if (t < 0.25f) return t / 0.25f; // 0% -> 25%: ramp in
+    if (t < 0.5f) return 1.0f; // 25% -> 50%: hold
+    return 1.0f - (t - 0.5f) / 0.5f; // 50% -> 100%: fade out
+}
+
+static float tree_subtree_flash_alpha(uint64_t now_us, uint64_t last_subtree_ts) {
+    if (last_subtree_ts == 0) return 0.0f;
+    if (last_subtree_ts >= now_us) return 1.0f;
+
+    uint64_t age = now_us - last_subtree_ts;
+    if (age >= TREE_FLASH_SUBTREE_DURATION_US) return 0.0f;
+
+    float t = 1.0f - (float)age / (float)TREE_FLASH_SUBTREE_DURATION_US;
+    return t * t; // ease out no hold
+}
+
 static MessageRecord s_search_results[SEARCH_MAX_RESULTS];
 static int s_search_result_count = 0;
 static int s_search_expanded_idx = -1; // which result row is expanded in place, -1 = none
@@ -59,7 +92,7 @@ static bool node_matches_filter(TopicNode* node, const char* filter) {
     return false;
 }
 
-static void render_node(AppState* state, TopicNode* node, int depth) {
+static void render_node(AppState* state, TopicNode* node, int depth, uint64_t now_us) {
     if (!node_matches_filter(node, state->topic_filter)) return;
 
     bool is_selected = (state->selected_topic == node);
@@ -81,10 +114,23 @@ static void render_node(AppState* state, TopicNode* node, int depth) {
 
     uint16_t left_pad = (uint16_t)(TREE_INDENT_BASE + depth * TREE_INDENT_STEP);
 
+    // Selected rows keep their own background
+    Clay_Color flash_bg = {0};
+    if (!is_selected && now_us != 0) {
+        float flash = tree_flash_alpha(now_us, node->last_message_ts);
+        if (flash > 0.0f) {
+            flash_bg = THEME_BG_FLASH;
+            flash_bg.a = flash * 255.0f;
+        } else {
+            // Nothing on this topic itself - show a calmer trace of traffic further down the subtree
+            flash_bg = THEME_BG_FLASH_SUBTREE;
+            flash_bg.a = tree_subtree_flash_alpha(now_us, node->last_subtree_message_ts) * 255.0f;
+        }
+    }
+
     CLAY(CLAY_SID(node_id_str), {
         .layout = {
             .sizing = { CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0) },
-            .padding = { 0, 12, 0, 0 },
             .layoutDirection = CLAY_TOP_TO_BOTTOM,
         },
         .backgroundColor = is_selected ? THEME_BG_SELECTED : (Clay_Color) { 0 },
@@ -106,6 +152,8 @@ static void render_node(AppState* state, TopicNode* node, int depth) {
                              .childGap = 6,
                              .childAlignment = {.y = CLAY_ALIGN_Y_CENTER},
                          },
+                     .backgroundColor = flash_bg,
+                     .cornerRadius = CLAY_CORNER_RADIUS(4),
                  }) {
                 // Expand chevron - visible box button, separate hit target
                 if (has_children) {
@@ -262,7 +310,7 @@ static void render_node(AppState* state, TopicNode* node, int depth) {
 
     if (has_children && node->expanded) {
         for (uint32_t i = 0; i < node->child_count; i++) {
-            render_node(state, node->children[i], depth + 1);
+            render_node(state, node->children[i], depth + 1, now_us);
         }
     }
 }
@@ -621,8 +669,20 @@ void tree_widget_render(AppState* state, Db* db) {
             render_search_results(state);
         } else {
             TopicTree* tree = &state->topic_tree;
+            struct timespec ts_now;
+            clock_gettime(CLOCK_REALTIME, &ts_now);
+            uint64_t now_us = (uint64_t)ts_now.tv_sec * 1000000ULL + (uint64_t)(ts_now.tv_nsec / 1000);
+
+            static TopicNode* s_flash_last_selected = NULL;
+            static uint64_t s_flash_selection_changed_us = 0;
+            if (state->selected_topic != s_flash_last_selected) {
+                s_flash_last_selected = state->selected_topic;
+                s_flash_selection_changed_us = now_us;
+            }
+            bool suppress_flash = (now_us - s_flash_selection_changed_us) < TREE_FLASH_SELECTION_GRACE_US;
+
             for (uint32_t i = 0; i < tree->root_count; i++) {
-                render_node(state, tree->roots[i], 0);
+                render_node(state, tree->roots[i], 0, suppress_flash ? 0 : now_us);
             }
 
             if (tree->root_count == 0) {
