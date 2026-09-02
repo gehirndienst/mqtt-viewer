@@ -13,6 +13,8 @@ void app_state_init(AppState* state) {
     spsc_queue_init(&state->msg_queue, MSG_QUEUE_CAPACITY, sizeof(MqttMessage));
     state->conn_state = CONN_DISCONNECTED;
     state->log_panel_open = true;
+    state->log_sel_anchor = -1;
+    state->log_sel_cursor = -1;
     state->tree_width_ratio = 0.4f;
     state->active_profile_idx = -1;
     state->profile_active_field = -1;

@@ -68,6 +68,9 @@ typedef struct {
     TopicNode* selected_topic;
     bool publish_panel_open;
     bool log_panel_open;
+    bool log_focused;
+    int log_sel_anchor;
+    int log_sel_cursor;
     bool profile_dialog_open;
     char topic_filter[256];
     bool topic_filter_focused;
