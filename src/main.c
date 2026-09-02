@@ -179,6 +179,7 @@ int main(void) {
                 node->last_message_ts = m->timestamp_us;
 
                 for (TopicNode* anc = node; anc; anc = anc->parent) {
+                    anc->last_subtree_message_ts = m->timestamp_us;
                     if (anc->subtree_message_count == 1 ||
                         (m->timestamp_us - anc->last_subtree_display_update_us) >= ui_tick_us) {
                         anc->last_subtree_display_update_us = m->timestamp_us;
@@ -513,7 +514,9 @@ int main(void) {
                 inspector_chart_add_from_line(&state, li);
                 break;
             }
-            // Chart [x] remove buttons in the ChartsPanel (one per active series)
+        }
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             for (int si = 0; si < CHART_MAX_SERIES; si++) {
                 if (!state.chart_series[si].active) continue;
                 char id[24];
