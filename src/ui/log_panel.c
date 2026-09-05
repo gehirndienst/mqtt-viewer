@@ -10,15 +10,16 @@
 #include "raylib.h"
 
 #include "model/connection_log.h"
+#include "model/util.h"
 #include "ui/log_panel.h"
 #include "ui/theme.h"
+#include "ui/ui_util.h"
 
 #define LOG_VISIBLE_ROWS 64
 
 static char s_log_bufs[LOG_VISIBLE_ROWS][320];
 static char s_level_bufs[LOG_VISIBLE_ROWS][8];
 static char s_msg_bufs[LOG_VISIBLE_ROWS][260];
-static char s_row_ids[LOG_VISIBLE_ROWS][32];
 static uint32_t s_row_entry_idx[LOG_VISIBLE_ROWS];
 static uint32_t s_row_count;
 static float s_copied_timer;
@@ -40,8 +41,7 @@ static const char* level_label_for(LogLevel level) {
 // Logical log index of the row under the mouse, or -1 when the pointer is not over a row
 static int log_row_under_pointer(void) {
     for (uint32_t di = 0; di < s_row_count; di++) {
-        Clay_String row_cs = {.length = (int32_t)strlen(s_row_ids[di]), .chars = s_row_ids[di]};
-        if (Clay_PointerOver(Clay_GetElementId(row_cs))) return (int)s_row_entry_idx[di];
+        if (Clay_PointerOver(CLAY_IDI("LogRow", di))) return (int)s_row_entry_idx[di];
     }
     return -1;
 }
@@ -54,11 +54,8 @@ static void log_copy_range(ConnectionLog* log, int lo, int hi) {
         LogEntry entry;
         if (!connection_log_get(log, (uint32_t)idx, &entry)) continue;
 
-        time_t secs = (time_t)(entry.timestamp_us / 1000000u);
-        struct tm tm_info;
-        localtime_r(&secs, &tm_info);
         char ts[16];
-        strftime(ts, sizeof(ts), "%H:%M:%S", &tm_info);
+        util_fmt_hhmmss(entry.timestamp_us, ts, sizeof(ts));
 
         int written = snprintf(s_copy_buf + used, sizeof(s_copy_buf) - used, "%s %s %s\n", ts,
                                level_label_for(entry.level), entry.message);
@@ -73,7 +70,7 @@ static void log_copy_range(ConnectionLog* log, int lo, int hi) {
 
     s_copy_buf[used] = '\0';
     SetClipboardText(s_copy_buf);
-    s_copied_timer = 1.5f;
+    ui_utils_flash_start(&s_copied_timer);
 }
 
 void log_panel_render(AppState* state) {
@@ -85,7 +82,7 @@ void log_panel_render(AppState* state) {
     bool do_close = false;
     bool do_copy = false;
 
-    if (s_copied_timer > 0.0f) s_copied_timer -= GetFrameTime();
+    bool copied_flash = ui_utils_flash_tick(&s_copied_timer);
 
     int sel_lo = -1, sel_hi = -1;
     if (state->log_sel_anchor >= 0 && state->log_sel_cursor >= 0) {
@@ -129,7 +126,7 @@ void log_panel_render(AppState* state) {
                      .backgroundColor = THEME_BG_BUTTON,
                      .cornerRadius = CLAY_CORNER_RADIUS(3),
                  }) {
-                CLAY_TEXT(s_copied_timer > 0.0f ? CLAY_STRING("Copied") : CLAY_STRING("Copy"), THEME_TEXT_SMALL);
+                CLAY_TEXT(copied_flash ? CLAY_STRING("Copied") : CLAY_STRING("Copy"), THEME_TEXT_SMALL);
             }
 
             CLAY(CLAY_ID("LogClearBtn"),
@@ -178,12 +175,8 @@ void log_panel_render(AppState* state) {
                 s_row_entry_idx[di] = entry_idx;
                 bool row_selected = (sel_lo >= 0 && (int)entry_idx >= sel_lo && (int)entry_idx <= sel_hi);
 
-                snprintf(s_row_ids[di], sizeof(s_row_ids[di]), "LogRow_%u", di);
 
-                time_t secs = (time_t)(entry.timestamp_us / 1000000u);
-                struct tm tm_info;
-                localtime_r(&secs, &tm_info);
-                strftime(s_log_bufs[di], sizeof(s_log_bufs[di]), "%H:%M:%S", &tm_info);
+                util_fmt_hhmmss(entry.timestamp_us, s_log_bufs[di], sizeof(s_log_bufs[di]));
 
                 Clay_Color level_color;
                 switch (entry.level) {
@@ -203,24 +196,11 @@ void log_panel_render(AppState* state) {
                 snprintf(s_level_bufs[di], sizeof(s_level_bufs[di]), "%-4s", level_label_for(entry.level));
                 snprintf(s_msg_bufs[di], sizeof(s_msg_bufs[di]), "%s", entry.message);
 
-                Clay_String row_id_cs = {
-                    .length = (int32_t)strlen(s_row_ids[di]),
-                    .chars = s_row_ids[di],
-                };
-                Clay_String ts_cs = {
-                    .length = (int32_t)strlen(s_log_bufs[di]),
-                    .chars = s_log_bufs[di],
-                };
-                Clay_String level_cs = {
-                    .length = (int32_t)strlen(s_level_bufs[di]),
-                    .chars = s_level_bufs[di],
-                };
-                Clay_String msg_cs = {
-                    .length = (int32_t)strlen(s_msg_bufs[di]),
-                    .chars = s_msg_bufs[di],
-                };
+                Clay_String ts_cs = ui_utils_clay_string(s_log_bufs[di]);
+                Clay_String level_cs = ui_utils_clay_string(s_level_bufs[di]);
+                Clay_String msg_cs = ui_utils_clay_string(s_msg_bufs[di]);
 
-                CLAY(CLAY_SID(row_id_cs),
+                CLAY(CLAY_IDI("LogRow", di),
                      {
                          .layout =
                              {

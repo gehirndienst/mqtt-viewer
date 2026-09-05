@@ -8,12 +8,7 @@
 
 #include "model/alloc.h"
 #include "model/connection_log.h"
-
-static uint64_t now_us(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    return (uint64_t)ts.tv_sec * 1000000 + (uint64_t)ts.tv_nsec / 1000;
-}
+#include "model/util.h"
 
 void connection_log_init(ConnectionLog* log, uint32_t capacity) {
     log->entries = alloc_check(calloc(capacity, sizeof(LogEntry)));
@@ -38,10 +33,9 @@ void connection_log_add(ConnectionLog* log, LogLevel level, const char* message)
     } else {
         log->count++;
     }
-    log->entries[idx].timestamp_us = now_us();
+    log->entries[idx].timestamp_us = util_now_us();
     log->entries[idx].level = level;
-    strncpy(log->entries[idx].message, message, sizeof(log->entries[idx].message) - 1);
-    log->entries[idx].message[sizeof(log->entries[idx].message) - 1] = '\0';
+    util_str_copy(log->entries[idx].message, sizeof(log->entries[idx].message), message);
     pthread_mutex_unlock(&log->mutex);
 }
 

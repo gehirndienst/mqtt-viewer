@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "model/broker_profile.h"
 #include "model/message_buf.h"
@@ -81,6 +82,13 @@ int db_load_messages(Db* db, MessageRecord* records, int max_count);
  * @return true on success.
  */
 bool db_trim_messages(Db* db, int max_rows);
+
+/**
+ * @brief Persist message records not yet written from the history ring, then trim the table.
+ * @param pushed Monotonic number of records ever pushed into @p history.
+ * @param saved  Monotonic number of records already persisted; advanced on return.
+ */
+void db_flush_history(Db* db, MessageBuf* history, uint64_t pushed, uint64_t* saved);
 
 /**
  * @brief Full-text search over all stored messages (topic + payload), ranked by relevance.

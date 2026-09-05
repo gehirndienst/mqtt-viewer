@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/chart_panel.h"
+#include "model/util.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -16,6 +17,7 @@
 #include "model/chart_series.h"
 #include "platform/ui.h"
 #include "ui/theme.h"
+#include "ui/ui_util.h"
 
 #define CHART_PANEL_HEIGHT_PX 280.0f
 #define CHART_CARD_HEADER_PX 18
@@ -133,10 +135,6 @@ void chart_panel_render(AppState* state) {
     int cols = 1, rows = 1;
     chart_panel_grid(active_count, &cols, &rows);
 
-    static char card_id_bufs[CHART_MAX_SERIES][24];
-    static char hdr_id_bufs[CHART_MAX_SERIES][24];
-    static char plot_id_bufs[CHART_MAX_SERIES][24];
-    static char rm_id_bufs[CHART_MAX_SERIES][24];
     static char val_bufs[CHART_MAX_SERIES][32];
 
     CLAY(CLAY_ID("ChartsPanel"),
@@ -152,10 +150,7 @@ void chart_panel_render(AppState* state) {
              .border = {.width = {.top = 1}, .color = THEME_BORDER},
          }) {
         for (int r = 0; r < rows; r++) {
-            char row_id[24];
-            snprintf(row_id, sizeof(row_id), "ChartRow_%d", r);
-            Clay_String row_cs = {.length = (int32_t)strlen(row_id), .chars = row_id};
-            CLAY(CLAY_SID(row_cs),
+            CLAY(CLAY_IDI("ChartRow", (uint32_t)r),
                  {
                      .layout =
                          {
@@ -168,29 +163,19 @@ void chart_panel_render(AppState* state) {
                     int si = chart_panel_active_at(state, slot);
                     if (si < 0) {
                         // empty cell: still grow so siblings divide width evenly
-                        char empty_id[24];
-                        snprintf(empty_id, sizeof(empty_id), "ChartEmpty_%d_%d", r, c);
-                        Clay_String ecs = {.length = (int32_t)strlen(empty_id), .chars = empty_id};
-                        CLAY(CLAY_SID(ecs), {.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) {}
+                        CLAY(CLAY_IDI("ChartEmpty", (uint32_t)slot),
+                             {.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}}}) {}
                         continue;
                     }
-                    ChartSeries* cs = &state->chart_series[si];
-                    snprintf(card_id_bufs[si], sizeof(card_id_bufs[si]), "ChartCard_%d", si);
-                    snprintf(hdr_id_bufs[si], sizeof(hdr_id_bufs[si]), "ChartHdr_%d", si);
-                    snprintf(plot_id_bufs[si], sizeof(plot_id_bufs[si]), "Plot_%d", si);
-                    snprintf(rm_id_bufs[si], sizeof(rm_id_bufs[si]), "ChartRm_%d", si);
-                    if (cs->count > 0) {
-                        const ChartSample* last = chart_series_get(cs, cs->count - 1);
+                    ChartSeries* ser = &state->chart_series[si];
+                    if (ser->count > 0) {
+                        const ChartSample* last = chart_series_get(ser, ser->count - 1);
                         snprintf(val_bufs[si], sizeof(val_bufs[si]), "%.4g", last->value);
                     } else {
                         snprintf(val_bufs[si], sizeof(val_bufs[si]), "—");
                     }
-                    Clay_String card_cs = {.length = (int32_t)strlen(card_id_bufs[si]), .chars = card_id_bufs[si]};
-                    Clay_String hdr_cs = {.length = (int32_t)strlen(hdr_id_bufs[si]), .chars = hdr_id_bufs[si]};
-                    Clay_String plot_cs = {.length = (int32_t)strlen(plot_id_bufs[si]), .chars = plot_id_bufs[si]};
-                    Clay_String rm_cs = {.length = (int32_t)strlen(rm_id_bufs[si]), .chars = rm_id_bufs[si]};
 
-                    CLAY(CLAY_SID(card_cs),
+                    CLAY(CLAY_IDI("ChartCard", (uint32_t)si),
                          {
                              .layout =
                                  {
@@ -204,7 +189,7 @@ void chart_panel_render(AppState* state) {
                              .cornerRadius = CLAY_CORNER_RADIUS(3),
                          }) {
                         // Header: topic/path + current value + remove x
-                        CLAY(CLAY_SID(hdr_cs),
+                        CLAY(CLAY_IDI("ChartHdr", (uint32_t)si),
                              {
                                  .layout =
                                      {
@@ -213,8 +198,8 @@ void chart_panel_render(AppState* state) {
                                          .childAlignment = {.y = CLAY_ALIGN_Y_CENTER},
                                      },
                              }) {
-                            const char* label = cs->dot_path[0] ? cs->dot_path : "(payload)";
-                            Clay_String pl = {.length = (int32_t)strlen(label), .chars = label};
+                            const char* label = ser->dot_path[0] ? ser->dot_path : "(payload)";
+                            Clay_String pl = ui_utils_clay_string(label);
                             CLAY_TEXT(pl,
                                       CLAY_TEXT_CONFIG({.fontSize = 11,
                                                         .fontId = FONT_MONO,
@@ -222,15 +207,13 @@ void chart_panel_render(AppState* state) {
                                                         .wrapMode = CLAY_TEXT_WRAP_NONE}));
 
                             // Per-card spacer ID - must be unique across all rendered cards
-                            char hsp_id[24];
-                            snprintf(hsp_id, sizeof(hsp_id), "ChartHdrSp_%d", si);
-                            Clay_String hsp_cs = {.length = (int32_t)strlen(hsp_id), .chars = hsp_id};
-                            CLAY(CLAY_SID(hsp_cs), {.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}}}) {}
-                            Clay_String vc = {.length = (int32_t)strlen(val_bufs[si]), .chars = val_bufs[si]};
+                            CLAY(CLAY_IDI("ChartHdrSp", (uint32_t)si),
+                                 {.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}}}) {}
+                            Clay_String vc = ui_utils_clay_string(val_bufs[si]);
                             CLAY_TEXT(vc,
                                       CLAY_TEXT_CONFIG(
                                           {.fontSize = 11, .fontId = FONT_MONO, .textColor = THEME_ACCENT_BLUE}));
-                            CLAY(CLAY_SID(rm_cs),
+                            CLAY(CLAY_IDI("ChartRm", (uint32_t)si),
                                  {
                                      .layout = {.padding = {5, 5, 0, 0}},
                                      .backgroundColor = THEME_BG_BUTTON,
@@ -242,7 +225,7 @@ void chart_panel_render(AppState* state) {
                             }
                         }
                         // plot reservation: chart_panel_draw() paints into this rect
-                        CLAY(CLAY_SID(plot_cs),
+                        CLAY(CLAY_IDI("Plot", (uint32_t)si),
                              {
                                  .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}},
                                  .backgroundColor = THEME_BG_PLOT,
@@ -251,15 +234,6 @@ void chart_panel_render(AppState* state) {
                 }
             }
         }
-    }
-}
-
-static void chart_panel_format_time(uint64_t ts_us, char* out, size_t out_size) {
-    time_t s = (time_t)(ts_us / 1000000ULL);
-    struct tm tm_info;
-    localtime_r(&s, &tm_info);
-    if (strftime(out, out_size, "%H:%M:%S", &tm_info) == 0) {
-        snprintf(out, out_size, "--:--:--");
     }
 }
 
@@ -274,19 +248,16 @@ void chart_panel_draw(AppState* state) {
     Color tooltip_fg = (Color){230, 230, 240, 255};
 
     for (int csi = 0; csi < CHART_MAX_SERIES; csi++) {
-        ChartSeries* cs = &state->chart_series[csi];
-        if (!cs->active) continue;
-        char id[24];
-        snprintf(id, sizeof(id), "Plot_%d", csi);
-        Clay_String idcs = {.length = (int32_t)strlen(id), .chars = id};
-        Clay_ElementData ed = Clay_GetElementData(Clay_GetElementId(idcs));
+        ChartSeries* ser = &state->chart_series[csi];
+        if (!ser->active) continue;
+        Clay_ElementData ed = Clay_GetElementData(CLAY_IDI("Plot", (uint32_t)csi));
         if (!ed.found) continue;
         Clay_BoundingBox b = ed.boundingBox;
         if (b.width < 4.0f || b.height < 4.0f) continue;
 
-        if (cs->y_dirty) chart_series_recompute_minmax(cs);
-        float y_min = (float)cs->y_min;
-        float y_max = (float)cs->y_max;
+        if (ser->y_dirty) chart_series_recompute_minmax(ser);
+        float y_min = (float)ser->y_min;
+        float y_max = (float)ser->y_max;
         float y_range = y_max - y_min;
         if (y_range < 1.0e-9f) {
             y_min -= 0.5f;
@@ -311,19 +282,19 @@ void chart_panel_draw(AppState* state) {
         }
 
         // Line strip + circle markers per sample
-        uint32_t n = cs->count;
+        uint32_t n = ser->count;
         uint64_t t_first = 0, t_last = 0;
         double t_range_us = 1.0;
         if (n >= 1) {
-            t_first = chart_series_get(cs, 0)->ts_us;
-            t_last = chart_series_get(cs, n - 1)->ts_us;
+            t_first = chart_series_get(ser, 0)->ts_us;
+            t_last = chart_series_get(ser, n - 1)->ts_us;
             t_range_us = (double)(t_last - t_first);
             if (t_range_us < 1.0) t_range_us = 1.0;
         }
         if (n >= 2) {
             Vector2 prev_pt = {0};
             for (uint32_t i = 0; i < n; i++) {
-                const ChartSample* sm = chart_series_get(cs, i);
+                const ChartSample* sm = chart_series_get(ser, i);
                 float fx = px0 + (float)((double)(sm->ts_us - t_first) / t_range_us) * pw;
                 float fy = py0 + ph - ((float)(sm->value - y_min) / y_range) * ph;
                 Vector2 cur_pt = {fx, fy};
@@ -334,16 +305,16 @@ void chart_panel_draw(AppState* state) {
 
         // Y-axis labels (min/max at the corners of the plot area)
         char ymin_buf[24], ymax_buf[24];
-        snprintf(ymin_buf, sizeof(ymin_buf), "%.4g", cs->y_min);
-        snprintf(ymax_buf, sizeof(ymax_buf), "%.4g", cs->y_max);
+        snprintf(ymin_buf, sizeof(ymin_buf), "%.4g", ser->y_min);
+        snprintf(ymax_buf, sizeof(ymax_buf), "%.4g", ser->y_max);
         DrawTextEx(label_font, ymax_buf, (Vector2){px0 + 2, py0 + 2}, 10.0f, 1.0f, label_col);
         DrawTextEx(label_font, ymin_buf, (Vector2){px0 + 2, py0 + ph - 12}, 10.0f, 1.0f, label_col);
 
         // X-axis time labels (first sample at left, last at right)
         if (n >= 1) {
             char tfirst_buf[16], tlast_buf[16];
-            chart_panel_format_time(t_first, tfirst_buf, sizeof(tfirst_buf));
-            chart_panel_format_time(t_last, tlast_buf, sizeof(tlast_buf));
+            util_fmt_hhmmss(t_first, tfirst_buf, sizeof(tfirst_buf));
+            util_fmt_hhmmss(t_last, tlast_buf, sizeof(tlast_buf));
             DrawTextEx(label_font, tfirst_buf, (Vector2){px0, py0 + ph + 1}, 10.0f, 1.0f, label_col);
             Vector2 tlast_size = MeasureTextEx(label_font, tlast_buf, 10.0f, 1.0f);
             DrawTextEx(label_font, tlast_buf, (Vector2){px0 + pw - tlast_size.x, py0 + ph + 1}, 10.0f, 1.0f, label_col);
@@ -351,14 +322,14 @@ void chart_panel_draw(AppState* state) {
 
         // Cursor hover: find the sample nearest the mouse-x and draw a vertical
         // tracker line plus a tooltip with its value and timestamp
-        bool inside = (mouse.x >= b.x && mouse.x <= b.x + b.width && mouse.y >= b.y && mouse.y <= b.y + b.height);
+        bool inside = ui_utils_bbox_contains(b, mouse.x, mouse.y);
         if (inside && n >= 1) {
             uint32_t best = 0;
             float best_dx = 1.0e30f;
             float fx_best = px0;
             float fy_best = py0;
             for (uint32_t i = 0; i < n; i++) {
-                const ChartSample* sm = chart_series_get(cs, i);
+                const ChartSample* sm = chart_series_get(ser, i);
                 float fx = px0 + (float)((double)(sm->ts_us - t_first) / t_range_us) * pw;
                 float dx = fx - (float)mouse.x;
                 if (dx < 0) dx = -dx;
@@ -369,7 +340,7 @@ void chart_panel_draw(AppState* state) {
                     fy_best = py0 + ph - ((float)(sm->value - y_min) / y_range) * ph;
                 }
             }
-            const ChartSample* hit = chart_series_get(cs, best);
+            const ChartSample* hit = chart_series_get(ser, best);
             // Vertical tracker
             DrawLineEx((Vector2){fx_best, py0}, (Vector2){fx_best, py0 + ph}, 1.0f, cursor_col);
             DrawCircleV((Vector2){fx_best, fy_best}, 3.0f, line_col);
@@ -378,7 +349,7 @@ void chart_panel_draw(AppState* state) {
             // Tooltip with timestamp + value, anchored above the tracker
             char ts_buf[16];
             char val_buf[24];
-            chart_panel_format_time(hit->ts_us, ts_buf, sizeof(ts_buf));
+            util_fmt_hhmmss(hit->ts_us, ts_buf, sizeof(ts_buf));
             snprintf(val_buf, sizeof(val_buf), "%.4g", hit->value);
             char tip[48]; // ts_buf(15) + 2 spaces + val_buf(23) + NUL = 41 max
             snprintf(tip, sizeof(tip), "%s  %s", ts_buf, val_buf);

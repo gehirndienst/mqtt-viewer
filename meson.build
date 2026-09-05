@@ -40,6 +40,7 @@ src_model = files(
     'src/model/subscription.c',
     'src/model/chart_series.c',
     'src/model/csv_export.c',
+    'src/model/util.c',
 )
 
 src_core = files(
@@ -57,6 +58,7 @@ src_ui = files(
     'src/ui/log_panel.c',
     'src/ui/menu_bar.c',
     'src/ui/status_bar.c',
+    'src/ui/ui_util.c',
 )
 
 src_platform = files(

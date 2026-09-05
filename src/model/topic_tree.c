@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "model/topic_tree.h"
+#include "model/util.h"
 
 void topic_tree_init(TopicTree* tree, uint32_t initial_pool_size) {
     pool_alloc_init(&tree->node_pool, sizeof(TopicNode), initial_pool_size);
@@ -20,8 +21,7 @@ void topic_tree_destroy(TopicTree* tree) {
 
 static TopicNode* node_new(TopicTree* tree, const char* segment, TopicNode* parent) {
     TopicNode* node = pool_alloc_get(&tree->node_pool);
-    strncpy(node->segment, segment, sizeof(node->segment) - 1);
-    node->segment[sizeof(node->segment) - 1] = '\0';
+    util_str_copy(node->segment, sizeof(node->segment), segment);
     node->parent = parent;
     node->child_count = 0;
     node->message_count = 0;
@@ -55,8 +55,7 @@ static void add_child(TopicNode** children, uint32_t* count, TopicNode* child) {
 
 TopicNode* topic_tree_insert(TopicTree* tree, const char* topic) {
     char buf[512];
-    strncpy(buf, topic, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
+    util_str_copy(buf, sizeof(buf), topic);
 
     TopicNode** children = tree->roots;
     uint32_t* child_count = &tree->root_count;
@@ -85,8 +84,7 @@ TopicNode* topic_tree_insert(TopicTree* tree, const char* topic) {
 
 TopicNode* topic_tree_find(const TopicTree* tree, const char* topic) {
     char buf[512];
-    strncpy(buf, topic, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
+    util_str_copy(buf, sizeof(buf), topic);
 
     TopicNode* const* children = tree->roots;
     uint32_t child_count = tree->root_count;

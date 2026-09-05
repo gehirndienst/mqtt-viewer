@@ -10,6 +10,7 @@
 #include "model/topic_tree.h"
 #include "ui/context_menu.h"
 #include "ui/theme.h"
+#include "ui/ui_util.h"
 
 static void set_expanded_recursive(TopicNode* node, bool expanded) {
     node->expanded = expanded;
@@ -63,7 +64,7 @@ void context_menu_render(AppState* state) {
                  },
          }) {
         // Copy Topic Path
-        Clay_String copy_id_cs = {.length = (int32_t)strlen(id_copy), .chars = id_copy};
+        Clay_String copy_id_cs = ui_utils_clay_string(id_copy);
         CLAY(CLAY_SID(copy_id_cs),
              {
                  .layout =
@@ -73,7 +74,7 @@ void context_menu_render(AppState* state) {
                      },
                  .cornerRadius = CLAY_CORNER_RADIUS(3),
              }) {
-            Clay_String lbl = {.length = (int32_t)strlen(label_copy), .chars = label_copy};
+            Clay_String lbl = ui_utils_clay_string(label_copy);
             CLAY_TEXT(lbl,
                       CLAY_TEXT_CONFIG({
                           .fontSize = 13,
@@ -83,7 +84,7 @@ void context_menu_render(AppState* state) {
         }
 
         // Publish Here
-        Clay_String publish_id_cs = {.length = (int32_t)strlen(id_publish), .chars = id_publish};
+        Clay_String publish_id_cs = ui_utils_clay_string(id_publish);
         CLAY(CLAY_SID(publish_id_cs),
              {
                  .layout =
@@ -93,7 +94,7 @@ void context_menu_render(AppState* state) {
                      },
                  .cornerRadius = CLAY_CORNER_RADIUS(3),
              }) {
-            Clay_String lbl = {.length = (int32_t)strlen(label_publish), .chars = label_publish};
+            Clay_String lbl = ui_utils_clay_string(label_publish);
             CLAY_TEXT(lbl,
                       CLAY_TEXT_CONFIG({
                           .fontSize = 13,
@@ -119,7 +120,7 @@ void context_menu_render(AppState* state) {
         }
 
         // Expand All
-        Clay_String expand_id_cs = {.length = (int32_t)strlen(id_expand), .chars = id_expand};
+        Clay_String expand_id_cs = ui_utils_clay_string(id_expand);
         CLAY(CLAY_SID(expand_id_cs),
              {
                  .layout =
@@ -129,7 +130,7 @@ void context_menu_render(AppState* state) {
                      },
                  .cornerRadius = CLAY_CORNER_RADIUS(3),
              }) {
-            Clay_String lbl = {.length = (int32_t)strlen(label_expand), .chars = label_expand};
+            Clay_String lbl = ui_utils_clay_string(label_expand);
             CLAY_TEXT(lbl,
                       CLAY_TEXT_CONFIG({
                           .fontSize = 13,
@@ -139,7 +140,7 @@ void context_menu_render(AppState* state) {
         }
 
         // Collapse All
-        Clay_String collapse_id_cs = {.length = (int32_t)strlen(id_collapse), .chars = id_collapse};
+        Clay_String collapse_id_cs = ui_utils_clay_string(id_collapse);
         CLAY(CLAY_SID(collapse_id_cs),
              {
                  .layout =
@@ -149,7 +150,7 @@ void context_menu_render(AppState* state) {
                      },
                  .cornerRadius = CLAY_CORNER_RADIUS(3),
              }) {
-            Clay_String lbl = {.length = (int32_t)strlen(label_collapse), .chars = label_collapse};
+            Clay_String lbl = ui_utils_clay_string(label_collapse);
             CLAY_TEXT(lbl,
                       CLAY_TEXT_CONFIG({
                           .fontSize = 13,
@@ -175,7 +176,7 @@ void context_menu_render(AppState* state) {
         }
 
         // Clear History
-        Clay_String clear_id_cs = {.length = (int32_t)strlen(id_clear), .chars = id_clear};
+        Clay_String clear_id_cs = ui_utils_clay_string(id_clear);
         CLAY(CLAY_SID(clear_id_cs),
              {
                  .layout =
@@ -185,7 +186,7 @@ void context_menu_render(AppState* state) {
                      },
                  .cornerRadius = CLAY_CORNER_RADIUS(3),
              }) {
-            Clay_String lbl = {.length = (int32_t)strlen(label_clear), .chars = label_clear};
+            Clay_String lbl = ui_utils_clay_string(label_clear);
             CLAY_TEXT(lbl,
                       CLAY_TEXT_CONFIG({
                           .fontSize = 13,
@@ -196,11 +197,11 @@ void context_menu_render(AppState* state) {
     }
 
     // Build Clay_String IDs for detection
-    Clay_String copy_id_cs = {.length = (int32_t)strlen(id_copy), .chars = id_copy};
-    Clay_String publish_id_cs = {.length = (int32_t)strlen(id_publish), .chars = id_publish};
-    Clay_String expand_id_cs = {.length = (int32_t)strlen(id_expand), .chars = id_expand};
-    Clay_String collapse_id_cs = {.length = (int32_t)strlen(id_collapse), .chars = id_collapse};
-    Clay_String clear_id_cs = {.length = (int32_t)strlen(id_clear), .chars = id_clear};
+    Clay_String copy_id_cs = ui_utils_clay_string(id_copy);
+    Clay_String publish_id_cs = ui_utils_clay_string(id_publish);
+    Clay_String expand_id_cs = ui_utils_clay_string(id_expand);
+    Clay_String collapse_id_cs = ui_utils_clay_string(id_collapse);
+    Clay_String clear_id_cs = ui_utils_clay_string(id_clear);
 
     if (Clay_PointerOver(Clay_GetElementId(copy_id_cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         do_copy = true;

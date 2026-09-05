@@ -13,6 +13,7 @@
 
 #include "core/mqtt_client.h"
 #include "core/ssh_tunnel.h"
+#include "model/util.h"
 #include "platform/log.h"
 
 #define MQTT_CLIENT_MAX_SUBS 32
@@ -36,12 +37,6 @@ struct MqttClient {
     uint32_t sub_count;
     SshTunnel ssh_tunnel;
 };
-
-static uint64_t now_us(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    return (uint64_t)ts.tv_sec * 1000000 + (uint64_t)ts.tv_nsec / 1000;
-}
 
 static void on_connect(struct mosquitto* mosq, void* obj, int rc) {
     MqttClient* client = obj;
@@ -87,13 +82,12 @@ static void on_message(struct mosquitto* mosq, void* obj, const struct mosquitto
     MqttClient* client = obj;
 
     MqttMessage m = {
-        .timestamp_us = now_us(),
+        .timestamp_us = util_now_us(),
         .payload_len = (uint32_t)msg->payloadlen,
         .qos = (uint8_t)msg->qos,
         .retained = msg->retain,
     };
-    strncpy(m.topic, msg->topic, sizeof(m.topic) - 1);
-    m.topic[sizeof(m.topic) - 1] = '\0';
+    util_str_copy(m.topic, sizeof(m.topic), msg->topic);
 
     // allocate payload copy (main thread will own it via arena later)
     if (msg->payloadlen > 0) {
@@ -189,9 +183,7 @@ bool mqtt_client_connect(MqttClient* client, const MqttConnectOpts* opts) {
     static char generated_id[32];
     const char* effective_id = opts->client_id;
     if (!opts->clean_session && (!opts->client_id || opts->client_id[0] == '\0')) {
-        struct timespec ts2;
-        clock_gettime(CLOCK_REALTIME, &ts2);
-        snprintf(generated_id, sizeof(generated_id), "mqttviewer-%08lx", (unsigned long)(ts2.tv_sec ^ ts2.tv_nsec));
+        snprintf(generated_id, sizeof(generated_id), "mqttviewer-%08lx", (unsigned long)util_now_us());
         effective_id = generated_id;
     }
 
@@ -355,8 +347,7 @@ bool mqtt_client_subscribe(MqttClient* client, const MqttSubscribeOpts* opts) {
     // store unconditionally so on_connect can re-send if called before CONNACK
     pthread_mutex_lock(&client->sub_mutex);
     if (client->sub_count < MQTT_CLIENT_MAX_SUBS) {
-        strncpy(client->sub_topics[client->sub_count], opts->topic_filter, sizeof(client->sub_topics[0]) - 1);
-        client->sub_topics[client->sub_count][sizeof(client->sub_topics[0]) - 1] = '\0';
+        util_str_copy(client->sub_topics[client->sub_count], sizeof(client->sub_topics[0]), opts->topic_filter);
         client->sub_qos[client->sub_count] = opts->qos;
         client->sub_count++;
     }

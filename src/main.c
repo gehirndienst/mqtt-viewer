@@ -12,6 +12,7 @@
 #include "model/csv_export.h"
 #include "model/message_buf.h"
 #include "model/subscription.h"
+#include "model/util.h"
 #include "platform/db.h"
 #include "platform/export_path.h"
 #include "platform/log.h"
@@ -26,6 +27,8 @@
 #include "ui/status_bar.h"
 #include "ui/theme.h"
 #include "ui/tree_widget.h"
+#include "ui/ui_util.h"
+
 
 int main(void) {
     // NOTE: libmosquitto may write to a broker socket that is already closed (e.g. the TLS shutdown handshake right
@@ -126,9 +129,7 @@ int main(void) {
             Clay_ElementData panel = Clay_GetElementData(CLAY_ID("TreePanel"));
             if (panel.found) {
                 Clay_BoundingBox b = panel.boundingBox;
-                bool cursor_in_panel =
-                    mouse.x >= b.x && mouse.x <= b.x + b.width && mouse.y >= b.y && mouse.y <= b.y + b.height;
-                if (cursor_in_panel) {
+                if (ui_utils_bbox_contains(b, mouse.x, mouse.y)) {
                     Clay_ScrollContainerData sd =
                         Clay_GetScrollContainerData(Clay_GetElementId(CLAY_STRING("TreeScroll")));
                     if (sd.found && sd.scrollPosition) {
@@ -198,35 +199,8 @@ int main(void) {
                     node->last_display_update_us = m->timestamp_us;
                     snprintf(node->msg_count_str, sizeof(node->msg_count_str), "%u", node->message_count);
                     if (m->payload) {
-                        // 4 bytes for optional "..." terminator if truncated
-                        bool truncated = (m->payload_len > TOPIC_PREVIEW_LEN - 4);
-                        uint32_t node_plen = truncated ? TOPIC_PREVIEW_LEN - 4 : m->payload_len;
-                        for (uint32_t pi = 0; pi < node_plen; pi++) {
-                            unsigned char c = (unsigned char)m->payload[pi];
-                            node->last_payload_preview[pi] = (c < 0x20 || c == 0x7f) ? ' ' : (char)c;
-                        }
-
-                        // Collapse consecutive spaces in-place; drop leading/trailing
-                        uint32_t src = 0, dst = 0;
-                        while (src < node_plen) {
-                            if (node->last_payload_preview[src] == ' ') {
-                                if (dst > 0 && node->last_payload_preview[dst - 1] != ' ')
-                                    node->last_payload_preview[dst++] = ' ';
-                                src++;
-                            } else {
-                                node->last_payload_preview[dst++] = node->last_payload_preview[src++];
-                            }
-                        }
-                        if (dst > 0 && node->last_payload_preview[dst - 1] == ' ') dst--;
-                        if (truncated) {
-                            if (dst > TOPIC_PREVIEW_LEN - 4) dst = TOPIC_PREVIEW_LEN - 4;
-                            node->last_payload_preview[dst] = '.';
-                            node->last_payload_preview[dst + 1] = '.';
-                            node->last_payload_preview[dst + 2] = '.';
-                            node->last_payload_preview[dst + 3] = '\0';
-                        } else {
-                            node->last_payload_preview[dst] = '\0';
-                        }
+                        util_preview_build_compact(node->last_payload_preview, sizeof(node->last_payload_preview),
+                                                   m->payload, m->payload_len);
                     } else {
                         // zero-length payload (e.g. "clear retained") must not leave a stale preview
                         node->last_payload_preview[0] = '\0';
@@ -245,14 +219,7 @@ int main(void) {
                 };
 
                 // Fill short preview for history view
-                if (m->payload) {
-                    uint32_t prev_len = m->payload_len < MSG_PREVIEW_LEN - 1 ? m->payload_len : MSG_PREVIEW_LEN - 1;
-                    for (uint32_t pi = 0; pi < prev_len; pi++) {
-                        unsigned char c = (unsigned char)m->payload[pi];
-                        rec.preview[pi] = (c < 0x20 || c == 0x7f) ? ' ' : (char)c;
-                    }
-                    rec.preview[prev_len] = '\0';
-                }
+                if (m->payload) util_preview_sanitize(rec.preview, sizeof(rec.preview), m->payload, m->payload_len);
                 topic_node_full_path(node, rec.topic, sizeof(rec.topic));
                 message_buf_push(&state.global_history, &rec);
                 history_pushed++;
@@ -370,9 +337,7 @@ int main(void) {
         }
 
         // rolling throughput for each subscription
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        double now_sec = (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+        double now_sec = (double)util_now_us() * 1e-6;
         for (int si = 0; si < state.subscription_count; si++) {
             Subscription* sub = &state.subscriptions[si];
             uint32_t in_window = 0;
@@ -389,24 +354,7 @@ int main(void) {
         save_timer += dt;
         if (db && save_timer >= 5.0f) {
             save_timer = 0.0f;
-            // window_start = monotonic index of the oldest record still in the ring
-            uint64_t window_start = history_pushed - message_buf_count(&state.global_history);
-            if (history_saved < window_start) history_saved = window_start;
-            if (history_saved < history_pushed) {
-                while (history_saved < history_pushed) {
-                    uint32_t new_count = (uint32_t)(history_pushed - history_saved);
-                    if (new_count > 256) new_count = 256;
-                    static MessageRecord batch[256];
-                    uint32_t start = (uint32_t)(history_saved - window_start);
-                    for (uint32_t i = 0; i < new_count; i++) {
-                        const MessageRecord* r = message_buf_get(&state.global_history, start + i);
-                        if (r) batch[i] = *r;
-                    }
-                    db_save_messages(db, batch, (int)new_count);
-                    history_saved += new_count;
-                }
-                db_trim_messages(db, 10000);
-            }
+            db_flush_history(db, &state.global_history, history_pushed, &history_saved);
         }
 
         // build layout
@@ -476,21 +424,21 @@ int main(void) {
             Clay_ElementData close_data = Clay_GetElementData(CLAY_ID("InspectorCloseBtn"));
             if (close_data.found) {
                 Clay_BoundingBox b = close_data.boundingBox;
-                if (mouse.x >= b.x && mouse.x <= b.x + b.width && mouse.y >= b.y && mouse.y <= b.y + b.height) {
+                if (ui_utils_bbox_contains(b, mouse.x, mouse.y)) {
                     state.selected_topic = NULL;
                 }
             }
             Clay_ElementData diff_data = Clay_GetElementData(CLAY_ID("InspectorDiffToggle"));
             if (diff_data.found) {
                 Clay_BoundingBox b = diff_data.boundingBox;
-                if (mouse.x >= b.x && mouse.x <= b.x + b.width && mouse.y >= b.y && mouse.y <= b.y + b.height) {
+                if (ui_utils_bbox_contains(b, mouse.x, mouse.y)) {
                     state.diff_enabled = !state.diff_enabled;
                 }
             }
             Clay_ElementData export_data = Clay_GetElementData(CLAY_ID("InspectorExportBtn"));
             if (state.selected_topic && export_data.found) {
                 Clay_BoundingBox b = export_data.boundingBox;
-                if (mouse.x >= b.x && mouse.x <= b.x + b.width && mouse.y >= b.y && mouse.y <= b.y + b.height) {
+                if (ui_utils_bbox_contains(b, mouse.x, mouse.y)) {
                     topic_node_full_path(state.selected_topic, state.export_topic, sizeof(state.export_topic));
                     if (export_path_resolve(state.export_topic, state.export_path, sizeof(state.export_path))) {
                         state.export_requested = true;
@@ -504,13 +452,10 @@ int main(void) {
             // Chart [+] inline buttons next to numeric values in the JSON view. scan for every line index - only the
             // ones whose Clay element exists this frame have a hit
             for (int li = 0; li < 2048; li++) {
-                char id[24];
-                snprintf(id, sizeof(id), "ChartAdd_%d", li);
-                Clay_String idcs = {.length = (int32_t)strlen(id), .chars = id};
-                Clay_ElementData ed = Clay_GetElementData(Clay_GetElementId(idcs));
+                Clay_ElementData ed = Clay_GetElementData(CLAY_IDI("ChartAdd", (uint32_t)li));
                 if (!ed.found) continue;
                 Clay_BoundingBox b = ed.boundingBox;
-                if (mouse.x < b.x || mouse.x > b.x + b.width || mouse.y < b.y || mouse.y > b.y + b.height) continue;
+                if (!ui_utils_bbox_contains(b, mouse.x, mouse.y)) continue;
                 inspector_chart_add_from_line(&state, li);
                 break;
             }
@@ -519,13 +464,10 @@ int main(void) {
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             for (int si = 0; si < CHART_MAX_SERIES; si++) {
                 if (!state.chart_series[si].active) continue;
-                char id[24];
-                snprintf(id, sizeof(id), "ChartRm_%d", si);
-                Clay_String idcs = {.length = (int32_t)strlen(id), .chars = id};
-                Clay_ElementData ed = Clay_GetElementData(Clay_GetElementId(idcs));
+                Clay_ElementData ed = Clay_GetElementData(CLAY_IDI("ChartRm", (uint32_t)si));
                 if (!ed.found) continue;
                 Clay_BoundingBox b = ed.boundingBox;
-                if (mouse.x < b.x || mouse.x > b.x + b.width || mouse.y < b.y || mouse.y > b.y + b.height) continue;
+                if (!ui_utils_bbox_contains(b, mouse.x, mouse.y)) continue;
                 chart_series_reset(&state.chart_series[si]);
             }
         }
@@ -641,24 +583,7 @@ int main(void) {
         db_set_setting(db, "window_height", buf);
         snprintf(buf, sizeof(buf), "%.4f", state.tree_width_ratio);
         db_set_setting(db, "tree_width_ratio", buf);
-
-        uint64_t window_start = history_pushed - message_buf_count(&state.global_history);
-        if (history_saved < window_start) history_saved = window_start;
-        if (history_saved < history_pushed) {
-            while (history_saved < history_pushed) {
-                uint32_t new_count = (uint32_t)(history_pushed - history_saved);
-                if (new_count > 256) new_count = 256;
-                static MessageRecord flush_batch[256];
-                uint32_t start = (uint32_t)(history_saved - window_start);
-                for (uint32_t i = 0; i < new_count; i++) {
-                    const MessageRecord* r = message_buf_get(&state.global_history, start + i);
-                    if (r) flush_batch[i] = *r;
-                }
-                db_save_messages(db, flush_batch, (int)new_count);
-                history_saved += new_count;
-            }
-            db_trim_messages(db, 10000);
-        }
+        db_flush_history(db, &state.global_history, history_pushed, &history_saved);
         db_close(db);
     }
 

@@ -12,10 +12,12 @@
 #include "core/mqtt_client.h"
 #include "model/app_state.h"
 #include "model/broker_profile.h"
+#include "model/util.h"
 #include "platform/db.h"
 #include "ui/profile_dialog.h"
 #include "ui/text_input.h"
 #include "ui/theme.h"
+#include "ui/ui_util.h"
 
 
 #define FIELD_BUF_COUNT 128
@@ -41,9 +43,6 @@
 
 static char s_field_bufs[FIELD_BUF_COUNT][FIELD_BUF_SIZE];
 static int s_field_buf_idx = FIELD_BUF_COUNT - 1;
-static char s_profile_item_ids[32][32];
-static char s_sub_ids[MAX_PROFILE_SUBS][32];
-static char s_sub_qos_ids[MAX_PROFILE_SUBS][3][32];
 // Numeric fields stored as strings; parsed to integers on Save / Connect
 static char s_port_str[16];
 static char s_ka_str[16];
@@ -112,9 +111,9 @@ static void render_field(const char* label, const char* value, const char* field
     char lbl_id[64], val_id[64];
     snprintf(lbl_id, sizeof(lbl_id), "%s_Lbl", field_id);
     snprintf(val_id, sizeof(val_id), "%s_Val", field_id);
-    Clay_String row_id_cs = {.length = (int32_t)strlen(field_id), .chars = field_id};
-    Clay_String lbl_id_cs = {.length = (int32_t)strlen(lbl_id), .chars = lbl_id};
-    Clay_String val_id_cs = {.length = (int32_t)strlen(val_id), .chars = val_id};
+    Clay_String row_id_cs = ui_utils_clay_string(field_id);
+    Clay_String lbl_id_cs = ui_utils_clay_string(lbl_id);
+    Clay_String val_id_cs = ui_utils_clay_string(val_id);
 
     CLAY(CLAY_SID(row_id_cs),
          {
@@ -133,7 +132,7 @@ static void render_field(const char* label, const char* value, const char* field
                          .sizing = {CLAY_SIZING_PERCENT(0.30f), CLAY_SIZING_FIT(0)},
                      },
              }) {
-            Clay_String ls = {.length = (int32_t)strlen(label), .chars = label};
+            Clay_String ls = ui_utils_clay_string(label);
             CLAY_TEXT(ls, THEME_TEXT_SMALL);
         }
 
@@ -142,10 +141,9 @@ static void render_field(const char* label, const char* value, const char* field
         if (is_active && !is_selected) {
             snprintf(buf, FIELD_BUF_SIZE, "%s|", value ? value : "");
         } else {
-            strncpy(buf, value ? value : "", FIELD_BUF_SIZE - 1);
-            buf[FIELD_BUF_SIZE - 1] = '\0';
+            util_str_copy(buf, FIELD_BUF_SIZE, value);
         }
-        Clay_String vs = {.length = (int32_t)strlen(buf), .chars = buf};
+        Clay_String vs = ui_utils_clay_string(buf);
 
         CLAY(CLAY_SID(val_id_cs),
              {
@@ -177,9 +175,9 @@ static void render_toggle(const char* label, bool value, const char* toggle_id) 
     char lbl_id[64], btn_id[64];
     snprintf(lbl_id, sizeof(lbl_id), "%s_Lbl", toggle_id);
     snprintf(btn_id, sizeof(btn_id), "%s_Btn", toggle_id);
-    Clay_String row_cs = {.length = (int32_t)strlen(toggle_id), .chars = toggle_id};
-    Clay_String lbl_cs = {.length = (int32_t)strlen(lbl_id), .chars = lbl_id};
-    Clay_String btn_cs = {.length = (int32_t)strlen(btn_id), .chars = btn_id};
+    Clay_String row_cs = ui_utils_clay_string(toggle_id);
+    Clay_String lbl_cs = ui_utils_clay_string(lbl_id);
+    Clay_String btn_cs = ui_utils_clay_string(btn_id);
 
     CLAY(CLAY_SID(row_cs),
          {
@@ -195,7 +193,7 @@ static void render_toggle(const char* label, bool value, const char* toggle_id) 
              {
                  .layout = {.sizing = {CLAY_SIZING_PERCENT(0.30f), CLAY_SIZING_FIT(0)}},
              }) {
-            Clay_String ls = {.length = (int32_t)strlen(label), .chars = label};
+            Clay_String ls = ui_utils_clay_string(label);
             CLAY_TEXT(ls, THEME_TEXT_SMALL);
         }
         CLAY(CLAY_SID(btn_cs),
@@ -228,7 +226,7 @@ static void render_toggle(const char* label, bool value, const char* toggle_id) 
 static void render_accordion_header(const char* label, bool expanded, const char* id, const char* suffix) {
     char row_id[64];
     snprintf(row_id, sizeof(row_id), "%s_Hdr", id);
-    Clay_String row_cs = {.length = (int32_t)strlen(row_id), .chars = row_id};
+    Clay_String row_cs = ui_utils_clay_string(row_id);
 
     CLAY(CLAY_SID(row_cs),
          {
@@ -249,7 +247,7 @@ static void render_accordion_header(const char* label, bool expanded, const char
 
         char* text = next_field_buf();
         snprintf(text, FIELD_BUF_SIZE, "%s%s", label, suffix ? suffix : "");
-        Clay_String ls = {.length = (int32_t)strlen(text), .chars = text};
+        Clay_String ls = ui_utils_clay_string(text);
         CLAY_TEXT(ls,
                   CLAY_TEXT_CONFIG({
                       .fontSize = 10,
@@ -265,13 +263,12 @@ static void render_selector(const char* label, const char** opt_labels, int coun
     static char s_sel_row_id[64];
     static char s_sel_lbl_id[64];
     static char s_sel_content_id[64];
-    static char s_sel_btn_ids[8][64];
     snprintf(s_sel_row_id, sizeof(s_sel_row_id), "%s_Row", base_id);
     snprintf(s_sel_lbl_id, sizeof(s_sel_lbl_id), "%s_Lbl", base_id);
     snprintf(s_sel_content_id, sizeof(s_sel_content_id), "%s_Content", base_id);
-    Clay_String row_cs = {.length = (int32_t)strlen(s_sel_row_id), .chars = s_sel_row_id};
-    Clay_String lbl_cs = {.length = (int32_t)strlen(s_sel_lbl_id), .chars = s_sel_lbl_id};
-    Clay_String content_cs = {.length = (int32_t)strlen(s_sel_content_id), .chars = s_sel_content_id};
+    Clay_String row_cs = ui_utils_clay_string(s_sel_row_id);
+    Clay_String lbl_cs = ui_utils_clay_string(s_sel_lbl_id);
+    Clay_String content_cs = ui_utils_clay_string(s_sel_content_id);
 
     CLAY(CLAY_SID(row_cs),
          {
@@ -287,7 +284,7 @@ static void render_selector(const char* label, const char** opt_labels, int coun
              {
                  .layout = {.sizing = {CLAY_SIZING_PERCENT(0.30f), CLAY_SIZING_FIT(0)}},
              }) {
-            Clay_String ls = {.length = (int32_t)strlen(label), .chars = label};
+            Clay_String ls = ui_utils_clay_string(label);
             CLAY_TEXT(ls, THEME_TEXT_SMALL);
         }
         CLAY(CLAY_SID(content_cs),
@@ -300,13 +297,8 @@ static void render_selector(const char* label, const char** opt_labels, int coun
                      },
              }) {
             for (int i = 0; i < count && i < 8; i++) {
-                snprintf(s_sel_btn_ids[i], sizeof(s_sel_btn_ids[i]), "%s_%d", base_id, i);
-                Clay_String btn_cs = {
-                    .length = (int32_t)strlen(s_sel_btn_ids[i]),
-                    .chars = s_sel_btn_ids[i],
-                };
                 bool is_sel = (i == sel_idx);
-                CLAY(CLAY_SID(btn_cs),
+                CLAY(CLAY_SIDI(ui_utils_clay_string(base_id), (uint32_t)i),
                      {
                          .layout =
                              {
@@ -321,10 +313,7 @@ static void render_selector(const char* label, const char** opt_labels, int coun
                                  .color = is_sel ? THEME_ACCENT_BLUE : THEME_BORDER,
                              },
                      }) {
-                    Clay_String os = {
-                        .length = (int32_t)strlen(opt_labels[i]),
-                        .chars = opt_labels[i],
-                    };
+                    Clay_String os = ui_utils_clay_string(opt_labels[i]);
                     CLAY_TEXT(os,
                               CLAY_TEXT_CONFIG({
                                   .fontSize = 12,
@@ -543,12 +532,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                          }) {
                         for (int i = 0; i < state->profile_count; i++) {
                             bool is_active = (i == state->active_profile_idx);
-                            snprintf(s_profile_item_ids[i], sizeof(s_profile_item_ids[i]), "ProfItem_%d", i);
-                            Clay_String pid_cs = {
-                                .length = (int32_t)strlen(s_profile_item_ids[i]),
-                                .chars = s_profile_item_ids[i],
-                            };
-                            CLAY(CLAY_SID(pid_cs),
+                            CLAY(CLAY_IDI("ProfItem", (uint32_t)i),
                                  {
                                      .layout =
                                          {
@@ -563,9 +547,8 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                                      .cornerRadius = CLAY_CORNER_RADIUS(3),
                                  }) {
                                 char* name_buf = next_field_buf();
-                                strncpy(name_buf, state->profiles[i].name, FIELD_BUF_SIZE - 1);
-                                name_buf[FIELD_BUF_SIZE - 1] = '\0';
-                                Clay_String ns = {.length = (int32_t)strlen(name_buf), .chars = name_buf};
+                                util_str_copy(name_buf, FIELD_BUF_SIZE, state->profiles[i].name);
+                                Clay_String ns = ui_utils_clay_string(name_buf);
                                 CLAY_TEXT(ns, THEME_TEXT_BODY);
                             }
                         }
@@ -691,7 +674,6 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                                       .textColor = THEME_TEXT_DIM,
                                   }));
                         for (int s = 0; s < prof->subscription_count; s++) {
-                            snprintf(s_sub_ids[s], sizeof(s_sub_ids[s]), "Sub_%d", s);
                             bool sub_active = (state->profile_active_field == FIDX_SUB_BASE + s);
 
                             // Build topic display (cursor when active)
@@ -699,25 +681,12 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                             if (sub_active) {
                                 snprintf(sub_buf, FIELD_BUF_SIZE, "%s|", prof->subscriptions[s].topic);
                             } else {
-                                strncpy(sub_buf, prof->subscriptions[s].topic, FIELD_BUF_SIZE - 1);
-                                sub_buf[FIELD_BUF_SIZE - 1] = '\0';
+                                util_str_copy(sub_buf, FIELD_BUF_SIZE, prof->subscriptions[s].topic);
                             }
 
-                            // Build per-sub QoS button IDs
-                            snprintf(s_sub_qos_ids[s][0], sizeof(s_sub_qos_ids[s][0]), "Sub_%d_Qos0", s);
-                            snprintf(s_sub_qos_ids[s][1], sizeof(s_sub_qos_ids[s][1]), "Sub_%d_Qos1", s);
-                            snprintf(s_sub_qos_ids[s][2], sizeof(s_sub_qos_ids[s][2]), "Sub_%d_Qos2", s);
+                            Clay_String topic_cs = ui_utils_clay_string(sub_buf);
 
-                            char lbl_id[48], val_id[48];
-                            snprintf(lbl_id, sizeof(lbl_id), "Sub_%d_Lbl", s);
-                            snprintf(val_id, sizeof(val_id), "Sub_%d_Val", s);
-
-                            Clay_String row_cs = {.length = (int32_t)strlen(s_sub_ids[s]), .chars = s_sub_ids[s]};
-                            Clay_String lbl_cs = {.length = (int32_t)strlen(lbl_id), .chars = lbl_id};
-                            Clay_String val_cs = {.length = (int32_t)strlen(val_id), .chars = val_id};
-                            Clay_String topic_cs = {.length = (int32_t)strlen(sub_buf), .chars = sub_buf};
-
-                            CLAY(CLAY_SID(row_cs),
+                            CLAY(CLAY_IDI("Sub", (uint32_t)s),
                                  {
                                      .layout =
                                          {
@@ -727,13 +696,13 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                                              .childAlignment = {.y = CLAY_ALIGN_Y_CENTER},
                                          },
                                  }) {
-                                CLAY(CLAY_SID(lbl_cs),
+                                CLAY(CLAY_IDI("SubLbl", (uint32_t)s),
                                      {
                                          .layout = {.sizing = {CLAY_SIZING_PERCENT(0.30f), CLAY_SIZING_FIT(0)}},
                                      }) {
                                     CLAY_TEXT(CLAY_STRING("Topic"), THEME_TEXT_SMALL);
                                 }
-                                CLAY(CLAY_SID(val_cs),
+                                CLAY(CLAY_IDI("SubVal", (uint32_t)s),
                                      {
                                          .layout =
                                              {
@@ -742,10 +711,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                                                  .childAlignment = {.y = CLAY_ALIGN_Y_CENTER},
                                              },
                                      }) {
-                                    char sub_inp_id[48];
-                                    snprintf(sub_inp_id, sizeof(sub_inp_id), "Sub_%d_Inp", s);
-                                    Clay_String inp_cs = {.length = (int32_t)strlen(sub_inp_id), .chars = sub_inp_id};
-                                    CLAY(CLAY_SID(inp_cs),
+                                    CLAY(CLAY_IDI("SubInp", (uint32_t)s),
                                          {
                                              .layout =
                                                  {
@@ -771,12 +737,8 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                                     static const char* s_qlbls[] = {"0", "1", "2"};
                                     for (int q = 0; q < 3; q++) {
                                         bool qos_sel = ((int)prof->subscriptions[s].qos == q);
-                                        Clay_String qid_cs = {
-                                            .length = (int32_t)strlen(s_sub_qos_ids[s][q]),
-                                            .chars = s_sub_qos_ids[s][q],
-                                        };
                                         Clay_String ql = {.length = 1, .chars = s_qlbls[q]};
-                                        CLAY(CLAY_SID(qid_cs),
+                                        CLAY(CLAY_IDI("SubQos", (uint32_t)(s * 3 + q)),
                                              {
                                                  .layout = {.padding = {8, 8, 4, 4}},
                                                  .backgroundColor = qos_sel ? THEME_BG_SELECTED : THEME_BG_BUTTON,
@@ -970,10 +932,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
         {
             static const int proto_values[] = {31, 311, 5};
             for (int i = 0; i < 3; i++) {
-                static char proto_btn[3][32];
-                snprintf(proto_btn[i], sizeof(proto_btn[i]), "SelProto_%d", i);
-                Clay_String cs = {.length = (int32_t)strlen(proto_btn[i]), .chars = proto_btn[i]};
-                if (Clay_PointerOver(Clay_GetElementId(cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (Clay_PointerOver(CLAY_IDI("SelProto", (uint32_t)i)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                     set_protocol = proto_values[i];
                 }
             }
@@ -982,10 +941,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
         {
             static const int tls_values[] = {0, 12, 13};
             for (int i = 0; i < 3; i++) {
-                static char tls_btn[3][32];
-                snprintf(tls_btn[i], sizeof(tls_btn[i]), "SelTlsVer_%d", i);
-                Clay_String cs = {.length = (int32_t)strlen(tls_btn[i]), .chars = tls_btn[i]};
-                if (Clay_PointerOver(Clay_GetElementId(cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (Clay_PointerOver(CLAY_IDI("SelTlsVer", (uint32_t)i)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                     set_tls_ver = tls_values[i];
                 }
             }
@@ -993,10 +949,8 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
         // Transport selector clicks
         {
             for (int i = 0; i < 3; i++) {
-                static char tr_btn[3][32];
-                snprintf(tr_btn[i], sizeof(tr_btn[i]), "SelTransport_%d", i);
-                Clay_String cs = {.length = (int32_t)strlen(tr_btn[i]), .chars = tr_btn[i]};
-                if (Clay_PointerOver(Clay_GetElementId(cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (Clay_PointerOver(CLAY_IDI("SelTransport", (uint32_t)i)) &&
+                    IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                     set_transport = i;
                 }
             }
@@ -1017,21 +971,15 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
             {"FldSshKey_Val", FIDX_SSH_KEY},
         };
         for (int fi = 0; fi < (int)(sizeof(kFieldClicks) / sizeof(kFieldClicks[0])); fi++) {
-            Clay_String cs = {
-                .length = (int32_t)strlen(kFieldClicks[fi].val_id),
-                .chars = kFieldClicks[fi].val_id,
-            };
-            if (Clay_PointerOver(Clay_GetElementId(cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            if (Clay_PointerOver(Clay_GetElementId(ui_utils_clay_string(kFieldClicks[fi].val_id))) &&
+                IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 state->profile_active_field = kFieldClicks[fi].fidx;
                 state->profile_field_all_selected = false;
             }
         }
         // Subscription field clicks
         for (int s = 0; s < prof->subscription_count; s++) {
-            char sub_inp_id[48];
-            snprintf(sub_inp_id, sizeof(sub_inp_id), "Sub_%d_Inp", s);
-            Clay_String cs = {.length = (int32_t)strlen(sub_inp_id), .chars = sub_inp_id};
-            if (Clay_PointerOver(Clay_GetElementId(cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            if (Clay_PointerOver(CLAY_IDI("SubInp", (uint32_t)s)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 state->profile_active_field = FIDX_SUB_BASE + s;
                 state->profile_field_all_selected = false;
             }
@@ -1039,11 +987,8 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
         // Subscription QoS button clicks
         for (int s = 0; s < prof->subscription_count; s++) {
             for (int q = 0; q < 3; q++) {
-                Clay_String qid_cs = {
-                    .length = (int32_t)strlen(s_sub_qos_ids[s][q]),
-                    .chars = s_sub_qos_ids[s][q],
-                };
-                if (Clay_PointerOver(Clay_GetElementId(qid_cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (Clay_PointerOver(CLAY_IDI("SubQos", (uint32_t)(s * 3 + q))) &&
+                    IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                     set_sub_qos_idx = s;
                     set_sub_qos_val = q;
                 }
@@ -1053,11 +998,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
 
     // Profile list item clicks
     for (int i = 0; i < state->profile_count; i++) {
-        Clay_String pid_cs = {
-            .length = (int32_t)strlen(s_profile_item_ids[i]),
-            .chars = s_profile_item_ids[i],
-        };
-        if (Clay_PointerOver(Clay_GetElementId(pid_cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        if (Clay_PointerOver(CLAY_IDI("ProfItem", (uint32_t)i)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             select_profile = i;
         }
     }
@@ -1072,7 +1013,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
     if (new_profile) {
         if (state->profile_count < 32) {
             broker_profile_init_default(&state->profiles[state->profile_count]);
-            strncpy(state->profiles[state->profile_count].name, "New Profile", sizeof(state->profiles[0].name) - 1);
+            util_str_copy(state->profiles[state->profile_count].name, sizeof(state->profiles[0].name), "New Profile");
             state->active_profile_idx = state->profile_count;
             state->profile_count++;
             prof = &state->profiles[state->active_profile_idx];
@@ -1171,8 +1112,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
             .ssh_jump_password = prof->ssh_jump_password[0] ? prof->ssh_jump_password : NULL,
         };
         if (mqtt_client_connect(mqtt, &opts)) {
-            strncpy(state->broker_host, prof->host, sizeof(state->broker_host) - 1);
-            state->broker_host[sizeof(state->broker_host) - 1] = '\0';
+            util_str_copy(state->broker_host, sizeof(state->broker_host), prof->host);
             state->broker_port = prof->port;
             state->subscription_count = 0;
             for (int i = 0; i < prof->subscription_count; i++) {
@@ -1184,8 +1124,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                 if (state->subscription_count < MAX_SUBSCRIPTIONS) {
                     Subscription* ss = &state->subscriptions[state->subscription_count++];
                     memset(ss, 0, sizeof(*ss));
-                    strncpy(ss->topic_filter, prof->subscriptions[i].topic, sizeof(ss->topic_filter) - 1);
-                    ss->topic_filter[sizeof(ss->topic_filter) - 1] = '\0';
+                    util_str_copy(ss->topic_filter, sizeof(ss->topic_filter), prof->subscriptions[i].topic);
                     ss->qos = prof->subscriptions[i].qos;
                     ss->state = SUB_STATE_ACTIVE;
                 }

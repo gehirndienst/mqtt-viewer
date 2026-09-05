@@ -12,8 +12,10 @@
 #include "raylib.h"
 
 #include "model/message_buf.h"
+#include "model/util.h"
 #include "ui/inspector_widget.h"
 #include "ui/theme.h"
+#include "ui/ui_util.h"
 
 #define DIFF_MAX_LINES 256
 #define DIFF_LINE_LEN 192
@@ -51,7 +53,6 @@ typedef struct {
 
 static JsonPPLine s_pp_lines[JSON_PP_MAX_LINES];
 static int s_pp_line_count;
-static char s_pp_line_ids[JSON_PP_MAX_LINES][32];
 static const char* s_pp_src;
 static int s_pp_src_len;
 static int s_pp_pos;
@@ -89,7 +90,6 @@ static uint64_t s_hist_copied_ts = 0;
 static float s_hist_copied_timer = 0.0f;
 static uint64_t s_hist_expanded_ts = 0;
 static TopicNode* s_last_hist_node = NULL;
-static char s_hist_exp_line_ids[JSON_PP_MAX_LINES][32];
 
 // mutual recursion between pp_format_* functions
 static void pp_format_value(const char* key, Clay_Color key_color);
@@ -150,7 +150,7 @@ static void render_hex_view(const char* src) {
     }
 
     for (int i = 0; i < line_count; i++) {
-        Clay_String hs = {.length = (int32_t)strlen(hex_lines[i]), .chars = hex_lines[i]};
+        Clay_String hs = ui_utils_clay_string(hex_lines[i]);
         CLAY_TEXT(hs, THEME_TEXT_MONO);
     }
 }
@@ -233,12 +233,9 @@ static void pp_emit_line(const char* key, Clay_Color key_color, const char* sep,
     if (s_pp_line_count >= JSON_PP_MAX_LINES) return;
     JsonPPLine* line = &s_pp_lines[s_pp_line_count++];
     line->depth = s_pp_depth;
-    strncpy(line->key, key ? key : "", JSON_PP_KEY_LEN - 1);
-    line->key[JSON_PP_KEY_LEN - 1] = '\0';
-    strncpy(line->sep, sep ? sep : "", 3);
-    line->sep[3] = '\0';
-    strncpy(line->val, val ? val : "", JSON_PP_VAL_LEN - 1);
-    line->val[JSON_PP_VAL_LEN - 1] = '\0';
+    util_str_copy(line->key, JSON_PP_KEY_LEN, key);
+    util_str_copy(line->sep, sizeof(line->sep), sep);
+    util_str_copy(line->val, JSON_PP_VAL_LEN, val);
     line->trail[0] = '\0';
     line->key_color = key_color;
     line->val_color = val_color;
@@ -277,7 +274,8 @@ static void pp_format_object_contents(void) {
 
         if (s_pp_pos < s_pp_src_len && s_pp_src[s_pp_pos] == ',') {
             s_pp_pos++;
-            if (s_pp_line_count > 0) strncpy(s_pp_lines[s_pp_line_count - 1].trail, ",", 3);
+            if (s_pp_line_count > 0)
+                util_str_copy(s_pp_lines[s_pp_line_count - 1].trail, sizeof(s_pp_lines[0].trail), ",");
         }
         pp_skip_ws();
     }
@@ -303,7 +301,8 @@ static void pp_format_array_contents(void) {
 
         if (s_pp_pos < s_pp_src_len && s_pp_src[s_pp_pos] == ',') {
             s_pp_pos++;
-            if (s_pp_line_count > 0) strncpy(s_pp_lines[s_pp_line_count - 1].trail, ",", 3);
+            if (s_pp_line_count > 0)
+                util_str_copy(s_pp_lines[s_pp_line_count - 1].trail, sizeof(s_pp_lines[0].trail), ",");
         }
         pp_skip_ws();
     }
@@ -433,8 +432,6 @@ static void diff_compute(int prev_n, int curr_n, const int* curr_depth) {
 }
 
 static void render_pp_line(const JsonPPLine* line, int line_idx, DiffState st) {
-    snprintf(s_pp_line_ids[line_idx], sizeof(s_pp_line_ids[line_idx]), "PP_%d", line_idx);
-    Clay_String lid = {.length = (int32_t)strlen(s_pp_line_ids[line_idx]), .chars = s_pp_line_ids[line_idx]};
     uint16_t left_pad = (uint16_t)(line->depth * JSON_INDENT_STEP);
 
     Clay_Color key_c = (st == DIFF_ADDED) ? THEME_DIFF_ADDED : line->key_color;
@@ -443,17 +440,14 @@ static void render_pp_line(const JsonPPLine* line, int line_idx, DiffState st) {
     Clay_Color trail_c = (st == DIFF_ADDED) ? THEME_DIFF_ADDED : THEME_TEXT_MUTED;
     Clay_Color content_bg = (st == DIFF_ADDED) ? THEME_DIFF_BG_ADDED : (Clay_Color){0};
 
-    CLAY(CLAY_SID(lid),
+    CLAY(CLAY_IDI("PP", (uint32_t)line_idx),
          {
              .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
                         .childGap = 0,
                         .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
          }) {
         // Column 1: gutter
-        static char gutter_id_bufs[JSON_PP_MAX_LINES][24];
-        snprintf(gutter_id_bufs[line_idx], sizeof(gutter_id_bufs[line_idx]), "PPGut_%d", line_idx);
-        Clay_String gut_cs = {.length = (int32_t)strlen(gutter_id_bufs[line_idx]), .chars = gutter_id_bufs[line_idx]};
-        CLAY(CLAY_SID(gut_cs),
+        CLAY(CLAY_IDI("PPGut", (uint32_t)line_idx),
              {
                  .layout = {.sizing = {CLAY_SIZING_FIXED(PP_GUTTER_W), CLAY_SIZING_FIT(0)},
                             .padding = {0, 0, 1, 1},
@@ -461,11 +455,7 @@ static void render_pp_line(const JsonPPLine* line, int line_idx, DiffState st) {
                  .border = {.width = {.right = 1}, .color = THEME_BORDER},
              }) {
             if (line->is_numeric) {
-                static char chart_id_bufs[JSON_PP_MAX_LINES][24];
-                snprintf(chart_id_bufs[line_idx], sizeof(chart_id_bufs[line_idx]), "ChartAdd_%d", line_idx);
-                Clay_String cid = {.length = (int32_t)strlen(chart_id_bufs[line_idx]),
-                                   .chars = chart_id_bufs[line_idx]};
-                CLAY(CLAY_SID(cid),
+                CLAY(CLAY_IDI("ChartAdd", (uint32_t)line_idx),
                      {
                          .layout = {.sizing = {CLAY_SIZING_FIXED(13), CLAY_SIZING_FIXED(13)},
                                     .childAlignment = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_CENTER}},
@@ -476,10 +466,7 @@ static void render_pp_line(const JsonPPLine* line, int line_idx, DiffState st) {
             }
         }
         // Column 2: content
-        static char content_id_bufs[JSON_PP_MAX_LINES][24];
-        snprintf(content_id_bufs[line_idx], sizeof(content_id_bufs[line_idx]), "PPCon_%d", line_idx);
-        Clay_String con_cs = {.length = (int32_t)strlen(content_id_bufs[line_idx]), .chars = content_id_bufs[line_idx]};
-        CLAY(CLAY_SID(con_cs),
+        CLAY(CLAY_IDI("PPCon", (uint32_t)line_idx),
              {
                  .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
                             .padding = {(uint16_t)(left_pad + 6), 0, 0, 0},
@@ -487,28 +474,28 @@ static void render_pp_line(const JsonPPLine* line, int line_idx, DiffState st) {
                  .backgroundColor = content_bg,
              }) {
             if (line->key[0]) {
-                Clay_String ks = {.length = (int32_t)strlen(line->key), .chars = line->key};
+                Clay_String ks = ui_utils_clay_string(line->key);
                 CLAY_TEXT(
                     ks,
                     CLAY_TEXT_CONFIG(
                         {.fontSize = 13, .fontId = FONT_MONO, .textColor = key_c, .wrapMode = CLAY_TEXT_WRAP_NONE}));
             }
             if (line->sep[0]) {
-                Clay_String ss = {.length = (int32_t)strlen(line->sep), .chars = line->sep};
+                Clay_String ss = ui_utils_clay_string(line->sep);
                 CLAY_TEXT(
                     ss,
                     CLAY_TEXT_CONFIG(
                         {.fontSize = 13, .fontId = FONT_MONO, .textColor = sep_c, .wrapMode = CLAY_TEXT_WRAP_NONE}));
             }
             if (line->val[0]) {
-                Clay_String vs = {.length = (int32_t)strlen(line->val), .chars = line->val};
+                Clay_String vs = ui_utils_clay_string(line->val);
                 CLAY_TEXT(
                     vs,
                     CLAY_TEXT_CONFIG(
                         {.fontSize = 13, .fontId = FONT_MONO, .textColor = val_c, .wrapMode = CLAY_TEXT_WRAP_NONE}));
             }
             if (line->trail[0]) {
-                Clay_String trs = {.length = (int32_t)strlen(line->trail), .chars = line->trail};
+                Clay_String trs = ui_utils_clay_string(line->trail);
                 CLAY_TEXT(
                     trs,
                     CLAY_TEXT_CONFIG(
@@ -520,32 +507,21 @@ static void render_pp_line(const JsonPPLine* line, int line_idx, DiffState st) {
 
 // Render a synthetic REMOVED row from the previous frame's text
 static void render_pp_removed(int merged_idx, int prev_idx) {
-    static char id_bufs[DIFF_MAX_LINES * 2][24];
-    snprintf(id_bufs[merged_idx], sizeof(id_bufs[merged_idx]), "PPR_%d", merged_idx);
-    Clay_String lid = {.length = (int32_t)strlen(id_bufs[merged_idx]), .chars = id_bufs[merged_idx]};
     uint16_t left_pad = (uint16_t)(s_diff_prev_text_depth[prev_idx] * JSON_INDENT_STEP);
-    Clay_String txt = {.length = (int32_t)strlen(s_diff_prev_text[prev_idx]), .chars = s_diff_prev_text[prev_idx]};
+    Clay_String txt = ui_utils_clay_string(s_diff_prev_text[prev_idx]);
 
-    CLAY(CLAY_SID(lid),
+    CLAY(CLAY_IDI("PPR", (uint32_t)merged_idx),
          {
              .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
                         .childGap = 0,
                         .childAlignment = {.y = CLAY_ALIGN_Y_CENTER}},
          }) {
-        static char gutter_id_bufs[DIFF_MAX_LINES * 2][24];
-        snprintf(gutter_id_bufs[merged_idx], sizeof(gutter_id_bufs[merged_idx]), "PPRGut_%d", merged_idx);
-        Clay_String gut_cs = {.length = (int32_t)strlen(gutter_id_bufs[merged_idx]),
-                              .chars = gutter_id_bufs[merged_idx]};
-        CLAY(CLAY_SID(gut_cs),
+        CLAY(CLAY_IDI("PPRGut", (uint32_t)merged_idx),
              {
                  .layout = {.sizing = {CLAY_SIZING_FIXED(PP_GUTTER_W), CLAY_SIZING_FIT(0)}},
                  .border = {.width = {.right = 1}, .color = THEME_BORDER},
              }) {}
-        static char content_id_bufs[DIFF_MAX_LINES * 2][24];
-        snprintf(content_id_bufs[merged_idx], sizeof(content_id_bufs[merged_idx]), "PPRCon_%d", merged_idx);
-        Clay_String con_cs = {.length = (int32_t)strlen(content_id_bufs[merged_idx]),
-                              .chars = content_id_bufs[merged_idx]};
-        CLAY(CLAY_SID(con_cs),
+        CLAY(CLAY_IDI("PPRCon", (uint32_t)merged_idx),
              {
                  .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
                             .padding = {(uint16_t)(left_pad + 6), 0, 0, 0},
@@ -704,8 +680,7 @@ static void render_json_view(const char* src) {
 
 static void render_history_view(AppState* state, TopicNode* node) {
     // Advance copy-flash timer; clear when expired
-    s_hist_copied_timer -= GetFrameTime();
-    if (s_hist_copied_timer <= 0.0f) s_hist_copied_ts = 0;
+    if (!ui_utils_flash_tick(&s_hist_copied_timer)) s_hist_copied_ts = 0;
 
     // Reset expanded row when the selected topic changes
     if (node != s_last_hist_node) {
@@ -744,28 +719,12 @@ static void render_history_view(AppState* state, TopicNode* node) {
 
         // Display-index-based Clay IDs (unique per frame even when timestamps collide)
         // Expand/copy state uses timestamps separately (s_hist_expanded_ts, s_hist_copied_ts)
-        char hr_id[32], hh_id[32], hhs_id[32], hc_id[32], hec_id[32];
-        snprintf(hr_id, sizeof(hr_id), "HR_%d", ri);
-        snprintf(hh_id, sizeof(hh_id), "HH_%d", ri);
-        snprintf(hhs_id, sizeof(hhs_id), "HHS_%d", ri);
-        snprintf(hc_id, sizeof(hc_id), "HC_%d", ri);
-        snprintf(hec_id, sizeof(hec_id), "HEC_%d", ri);
-        Clay_String hr_cs = {.length = (int32_t)strlen(hr_id), .chars = hr_id};
-        Clay_String hh_cs = {.length = (int32_t)strlen(hh_id), .chars = hh_id};
-        Clay_String hhs_cs = {.length = (int32_t)strlen(hhs_id), .chars = hhs_id};
-        Clay_String hc_cs = {.length = (int32_t)strlen(hc_id), .chars = hc_id};
-        Clay_String hec_cs = {.length = (int32_t)strlen(hec_id), .chars = hec_id};
 
-        time_t secs = (time_t)(r->timestamp_us / 1000000ULL);
-        struct tm* tm_info = localtime(&secs);
-        if (tm_info)
-            strftime(s_hist_time_bufs[ri], sizeof(s_hist_time_bufs[ri]), "%H:%M:%S", tm_info);
-        else
-            snprintf(s_hist_time_bufs[ri], sizeof(s_hist_time_bufs[ri]), "--:--:--");
+        util_fmt_hhmmss(r->timestamp_us, s_hist_time_bufs[ri], sizeof(s_hist_time_bufs[ri]));
         snprintf(s_hist_meta_bufs[ri], sizeof(s_hist_meta_bufs[ri]), "Q%u  %u B%s", (unsigned)r->qos, r->payload_len,
                  r->retained ? "  R" : "");
 
-        CLAY(CLAY_SID(hr_cs),
+        CLAY(CLAY_IDI("HR", (uint32_t)ri),
              {
                  .layout =
                      {
@@ -775,7 +734,7 @@ static void render_history_view(AppState* state, TopicNode* node) {
                  .border = {.width = {.bottom = 1}, .color = THEME_BORDER_SUBTLE},
              }) {
             // hdr row: triangle + timestamp + meta + spacer + copy button
-            CLAY(CLAY_SID(hh_cs),
+            CLAY(CLAY_IDI("HH", (uint32_t)ri),
                  {
                      .layout =
                          {
@@ -792,31 +751,25 @@ static void render_history_view(AppState* state, TopicNode* node) {
                               .fontId = FONT_DEFAULT,
                               .textColor = THEME_TEXT_DIM,
                           }));
-                Clay_String ts_cs = {
-                    .length = (int32_t)strlen(s_hist_time_bufs[ri]),
-                    .chars = s_hist_time_bufs[ri],
-                };
+                Clay_String ts_cs = ui_utils_clay_string(s_hist_time_bufs[ri]);
                 CLAY_TEXT(ts_cs,
                           CLAY_TEXT_CONFIG({
                               .fontSize = 11,
                               .fontId = FONT_MONO,
                               .textColor = THEME_TEXT_DIM,
                           }));
-                Clay_String ms_cs = {
-                    .length = (int32_t)strlen(s_hist_meta_bufs[ri]),
-                    .chars = s_hist_meta_bufs[ri],
-                };
+                Clay_String ms_cs = ui_utils_clay_string(s_hist_meta_bufs[ri]);
                 CLAY_TEXT(ms_cs,
                           CLAY_TEXT_CONFIG({
                               .fontSize = 11,
                               .fontId = FONT_MONO,
                               .textColor = THEME_TEXT_DIM,
                           }));
-                CLAY(CLAY_SID(hhs_cs),
+                CLAY(CLAY_IDI("HHS", (uint32_t)ri),
                      {
                          .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
                      }) {}
-                CLAY(CLAY_SID(hc_cs), {
+                CLAY(CLAY_IDI("HC", (uint32_t)ri), {
                     .layout = {.padding = {7, 7, 2, 2}},
                     .backgroundColor = copying ? THEME_BG_INPUT_ACTIVE : THEME_BG_BUTTON,
                     .cornerRadius = CLAY_CORNER_RADIUS(3),
@@ -836,7 +789,7 @@ static void render_history_view(AppState* state, TopicNode* node) {
 
             // Expanded payload
             if (expanded && r->preview[0] != '\0') {
-                CLAY(CLAY_SID(hec_cs),
+                CLAY(CLAY_IDI("HEC", (uint32_t)ri),
                      {
                          .layout =
                              {
@@ -871,13 +824,8 @@ static void render_history_view(AppState* state, TopicNode* node) {
                     } else {
                         for (int li = 0; li < s_pp_line_count; li++) {
                             JsonPPLine* line = &s_pp_lines[li];
-                            snprintf(s_hist_exp_line_ids[li], sizeof(s_hist_exp_line_ids[li]), "EPP_%d", li);
-                            Clay_String lid = {
-                                .length = (int32_t)strlen(s_hist_exp_line_ids[li]),
-                                .chars = s_hist_exp_line_ids[li],
-                            };
                             uint16_t left_pad = (uint16_t)(line->depth * JSON_INDENT_STEP + 6);
-                            CLAY(CLAY_SID(lid),
+                            CLAY(CLAY_IDI("EPP", (uint32_t)li),
                                  {
                                      .layout =
                                          {
@@ -888,10 +836,7 @@ static void render_history_view(AppState* state, TopicNode* node) {
                                          },
                                  }) {
                                 if (line->key[0]) {
-                                    Clay_String ks = {
-                                        .length = (int32_t)strlen(line->key),
-                                        .chars = line->key,
-                                    };
+                                    Clay_String ks = ui_utils_clay_string(line->key);
                                     CLAY_TEXT(ks,
                                               CLAY_TEXT_CONFIG({
                                                   .fontSize = 12,
@@ -901,10 +846,7 @@ static void render_history_view(AppState* state, TopicNode* node) {
                                               }));
                                 }
                                 if (line->sep[0]) {
-                                    Clay_String ss = {
-                                        .length = (int32_t)strlen(line->sep),
-                                        .chars = line->sep,
-                                    };
+                                    Clay_String ss = ui_utils_clay_string(line->sep);
                                     CLAY_TEXT(ss,
                                               CLAY_TEXT_CONFIG({
                                                   .fontSize = 12,
@@ -914,10 +856,7 @@ static void render_history_view(AppState* state, TopicNode* node) {
                                               }));
                                 }
                                 if (line->val[0]) {
-                                    Clay_String vs = {
-                                        .length = (int32_t)strlen(line->val),
-                                        .chars = line->val,
-                                    };
+                                    Clay_String vs = ui_utils_clay_string(line->val);
                                     CLAY_TEXT(vs,
                                               CLAY_TEXT_CONFIG({
                                                   .fontSize = 12,
@@ -927,10 +866,7 @@ static void render_history_view(AppState* state, TopicNode* node) {
                                               }));
                                 }
                                 if (line->trail[0]) {
-                                    Clay_String trs = {
-                                        .length = (int32_t)strlen(line->trail),
-                                        .chars = line->trail,
-                                    };
+                                    Clay_String trs = ui_utils_clay_string(line->trail);
                                     CLAY_TEXT(trs,
                                               CLAY_TEXT_CONFIG({
                                                   .fontSize = 12,
@@ -955,20 +891,15 @@ static void render_history_view(AppState* state, TopicNode* node) {
         const MessageRecord* r = message_buf_get(&state->global_history, matches[ri]);
         if (!r) continue;
 
-        char hc_id[32], hh_id[32];
-        snprintf(hc_id, sizeof(hc_id), "HC_%d", ri);
-        snprintf(hh_id, sizeof(hh_id), "HH_%d", ri);
-        Clay_String hc_cs2 = {.length = (int32_t)strlen(hc_id), .chars = hc_id};
-        Clay_String hh_cs2 = {.length = (int32_t)strlen(hh_id), .chars = hh_id};
-        Clay_ElementId hc_eid = Clay_GetElementId(hc_cs2);
-        Clay_ElementId hh_eid = Clay_GetElementId(hh_cs2);
+        Clay_ElementId hc_eid = CLAY_IDI("HC", (uint32_t)ri);
+        Clay_ElementId hh_eid = CLAY_IDI("HH", (uint32_t)ri);
 
         // Copy button - copies full preview to clipboard
         if (Clay_PointerOver(hc_eid) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             if (r->preview[0] != '\0') {
                 SetClipboardText(r->preview);
                 s_hist_copied_ts = r->timestamp_us;
-                s_hist_copied_timer = 1.5f;
+                ui_utils_flash_start(&s_hist_copied_timer);
             }
         }
         // Header click (not on Copy) - toggle expand
@@ -981,15 +912,11 @@ static void render_history_view(AppState* state, TopicNode* node) {
 static void render_frozen_inspector(AppState* state) {
     bool close_requested = false;
 
-    s_copied_timer -= GetFrameTime();
-    if (s_copied_timer <= 0.0f) s_copied_btn = -1;
+    if (!ui_utils_flash_tick(&s_copied_timer)) s_copied_btn = -1;
 
     static char meta[128];
-    time_t secs = (time_t)(state->frozen_message.timestamp_us / 1000000ULL);
-    struct tm tm_info;
-    localtime_r(&secs, &tm_info);
     char ts_buf[16];
-    strftime(ts_buf, sizeof(ts_buf), "%H:%M:%S", &tm_info);
+    util_fmt_hhmmss(state->frozen_message.timestamp_us, ts_buf, sizeof(ts_buf));
     snprintf(meta, sizeof(meta), "%s \xc2\xb7 QoS %u%s", ts_buf, (unsigned)state->frozen_message.qos,
              state->frozen_message.retained ? " \xc2\xb7 Retained" : "");
 
@@ -1019,8 +946,7 @@ static void render_frozen_inspector(AppState* state) {
                      .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
                      .clip = {.horizontal = true},
                  }) {
-                Clay_String path_str = {.length = (int32_t)strlen(state->frozen_message.topic),
-                                        .chars = state->frozen_message.topic};
+                Clay_String path_str = ui_utils_clay_string(state->frozen_message.topic);
                 CLAY_TEXT(path_str,
                           CLAY_TEXT_CONFIG({
                               .fontSize = 16,
@@ -1060,7 +986,7 @@ static void render_frozen_inspector(AppState* state) {
                  .backgroundColor = THEME_BG_LATEST,
                  .border = {.width = {.bottom = 1}, .color = THEME_BORDER},
              }) {
-            Clay_String meta_str = {.length = (int32_t)strlen(meta), .chars = meta};
+            Clay_String meta_str = ui_utils_clay_string(meta);
             CLAY_TEXT(meta_str,
                       CLAY_TEXT_CONFIG({
                           .fontSize = 11,
@@ -1081,12 +1007,9 @@ static void render_frozen_inspector(AppState* state) {
              }) {
             const char* tab_names[] = {"JSON", "Text", "Hex"};
             ViewMode modes[] = {VIEW_JSON, VIEW_TEXT, VIEW_HEX};
-            static char tab_ids[3][32];
             for (int t = 0; t < 3; t++) {
                 bool active = (state->inspector_view == (int)modes[t]);
-                snprintf(tab_ids[t], sizeof(tab_ids[t]), "FTab_%d", t);
-                Clay_String tab_id_str = {.length = (int32_t)strlen(tab_ids[t]), .chars = tab_ids[t]};
-                CLAY(CLAY_SID(tab_id_str), {
+                CLAY(CLAY_IDI("FTab", (uint32_t)t), {
                     .layout = {.padding = {14, 14, 8, 8}},
                     .backgroundColor = active ? THEME_BG_BUTTON : (Clay_Color){0},
                     .border = active ? (Clay_BorderElementConfig){
@@ -1094,7 +1017,7 @@ static void render_frozen_inspector(AppState* state) {
                     }
                                      : (Clay_BorderElementConfig){0},
                 }) {
-                    Clay_String ts = {.length = (int32_t)strlen(tab_names[t]), .chars = tab_names[t]};
+                    Clay_String ts = ui_utils_clay_string(tab_names[t]);
                     CLAY_TEXT(ts,
                               CLAY_TEXT_CONFIG({
                                   .fontSize = 12,
@@ -1102,7 +1025,7 @@ static void render_frozen_inspector(AppState* state) {
                                   .textColor = active ? THEME_TEXT_PRIMARY : THEME_TEXT_MUTED,
                               }));
                 }
-                if (Clay_PointerOver(Clay_GetElementId(tab_id_str)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (Clay_PointerOver(CLAY_IDI("FTab", (uint32_t)t)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                     state->inspector_view = modes[t];
                 }
             }
@@ -1148,12 +1071,9 @@ static void render_frozen_inspector(AppState* state) {
              }) {
             const char* actions[] = {"Copy Payload", "Copy Topic", "Publish Here"};
             const char* actions_done[] = {"Copied!", "Copied!", "Publish Here"};
-            static char act_ids[3][32];
             for (int a = 0; a < 3; a++) {
                 bool flashing = (s_copied_btn == a);
-                snprintf(act_ids[a], sizeof(act_ids[a]), "FAction_%d", a);
-                Clay_String act_id_str = {.length = (int32_t)strlen(act_ids[a]), .chars = act_ids[a]};
-                CLAY(CLAY_SID(act_id_str), {
+                CLAY(CLAY_IDI("FAction", (uint32_t)a), {
                     .layout = {.padding = {10, 10, 4, 4}},
                     .backgroundColor = flashing ? THEME_BG_HOVER : THEME_BG_BUTTON,
                     .cornerRadius = CLAY_CORNER_RADIUS(4),
@@ -1163,7 +1083,7 @@ static void render_frozen_inspector(AppState* state) {
                                        : (Clay_BorderElementConfig){0},
                 }) {
                     const char* label = flashing ? actions_done[a] : actions[a];
-                    Clay_String as = {.length = (int32_t)strlen(label), .chars = label};
+                    Clay_String as = ui_utils_clay_string(label);
                     CLAY_TEXT(as,
                               CLAY_TEXT_CONFIG({
                                   .fontSize = 12,
@@ -1187,10 +1107,8 @@ static void render_frozen_inspector(AppState* state) {
         state->inspector_frozen = false;
     }
 
-    static const char* s_fact_ids[3] = {"FAction_0", "FAction_1", "FAction_2"};
     for (int a = 0; a < 3; a++) {
-        Clay_String aid = {.length = (int32_t)strlen(s_fact_ids[a]), .chars = s_fact_ids[a]};
-        if (Clay_PointerOver(Clay_GetElementId(aid)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        if (Clay_PointerOver(CLAY_IDI("FAction", (uint32_t)a)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             switch (a) {
                 case 0: // Copy Payload
                     if (state->inspector_view == VIEW_HEX) {
@@ -1206,15 +1124,14 @@ static void render_frozen_inspector(AppState* state) {
                     SetClipboardText(state->frozen_message.topic);
                     break;
                 case 2: // Publish Here
-                    strncpy(state->publish_topic, state->frozen_message.topic, sizeof(state->publish_topic) - 1);
-                    state->publish_topic[sizeof(state->publish_topic) - 1] = '\0';
+                    util_str_copy(state->publish_topic, sizeof(state->publish_topic), state->frozen_message.topic);
                     state->publish_panel_open = true;
                     break;
                 default:
                     break;
             }
             s_copied_btn = a;
-            s_copied_timer = 1.0f;
+            ui_utils_flash_start(&s_copied_timer);
         }
     }
 }
@@ -1246,8 +1163,7 @@ void inspector_widget_render(AppState* state) {
 
     bool close_requested = false;
 
-    s_copied_timer -= GetFrameTime();
-    if (s_copied_timer <= 0.0f) s_copied_btn = -1;
+    if (!ui_utils_flash_tick(&s_copied_timer)) s_copied_btn = -1;
 
     CLAY(CLAY_ID("Inspector"),
          {
@@ -1277,7 +1193,7 @@ void inspector_widget_render(AppState* state) {
                      .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
                      .clip = {.horizontal = true},
                  }) {
-                Clay_String path_str = {.length = (int32_t)strlen(full_path), .chars = full_path};
+                Clay_String path_str = ui_utils_clay_string(full_path);
                 CLAY_TEXT(path_str,
                           CLAY_TEXT_CONFIG({
                               .fontSize = 16,
@@ -1337,11 +1253,9 @@ void inspector_widget_render(AppState* state) {
             static char s_age_str[20];
             static char s_last_meta[80];
             if (node->last_message_ts > 0) {
-                struct timespec ts_now;
-                clock_gettime(CLOCK_REALTIME, &ts_now);
-                uint64_t now_us = (uint64_t)ts_now.tv_sec * 1000000ULL + (uint64_t)(ts_now.tv_nsec / 1000);
+                uint64_t now = util_now_us();
                 uint32_t age_s =
-                    (now_us >= node->last_message_ts) ? (uint32_t)((now_us - node->last_message_ts) / 1000000ULL) : 0;
+                    (now >= node->last_message_ts) ? (uint32_t)((now - node->last_message_ts) / 1000000ULL) : 0;
                 if (age_s < 60)
                     snprintf(s_age_str, sizeof(s_age_str), "%us ago", age_s);
                 else if (age_s < 3600)
@@ -1382,10 +1296,7 @@ void inspector_widget_render(AppState* state) {
                     } else {
                         memcpy(s_latest_excerpt, full_pv, full_pv_len + 1);
                     }
-                    Clay_String val_str = {
-                        .length = (int32_t)strlen(s_latest_excerpt),
-                        .chars = s_latest_excerpt,
-                    };
+                    Clay_String val_str = ui_utils_clay_string(s_latest_excerpt);
                     CLAY_TEXT(val_str,
                               CLAY_TEXT_CONFIG({
                                   .fontSize = 13,
@@ -1396,14 +1307,14 @@ void inspector_widget_render(AppState* state) {
                     CLAY_TEXT(CLAY_STRING("(empty)"), THEME_TEXT_SMALL);
                 }
 
-                Clay_String lm_str = {.length = (int32_t)strlen(s_last_meta), .chars = s_last_meta};
+                Clay_String lm_str = ui_utils_clay_string(s_last_meta);
                 CLAY_TEXT(lm_str,
                           CLAY_TEXT_CONFIG({
                               .fontSize = 11,
                               .fontId = FONT_DEFAULT,
                               .textColor = THEME_ACCENT_BLUE,
                           }));
-                Clay_String meta_str = {.length = (int32_t)strlen(meta), .chars = meta};
+                Clay_String meta_str = ui_utils_clay_string(meta);
                 CLAY_TEXT(meta_str,
                           CLAY_TEXT_CONFIG({
                               .fontSize = 11,
@@ -1425,12 +1336,9 @@ void inspector_widget_render(AppState* state) {
              }) {
             const char* tab_names[] = {"JSON", "Text", "Hex", "History"};
             ViewMode modes[] = {VIEW_JSON, VIEW_TEXT, VIEW_HEX, VIEW_HISTORY};
-            static char tab_ids[4][32];
             for (int t = 0; t < 4; t++) {
                 bool active = (state->inspector_view == (int)modes[t]);
-                snprintf(tab_ids[t], sizeof(tab_ids[t]), "Tab_%d", t);
-                Clay_String tab_id_str = {.length = (int32_t)strlen(tab_ids[t]), .chars = tab_ids[t]};
-                CLAY(CLAY_SID(tab_id_str), {
+                CLAY(CLAY_IDI("Tab", (uint32_t)t), {
                     .layout = {.padding = {14, 14, 8, 8}},
                     .backgroundColor = active ? THEME_BG_BUTTON : (Clay_Color){0},
                     .border = active ? (Clay_BorderElementConfig){
@@ -1438,7 +1346,7 @@ void inspector_widget_render(AppState* state) {
                     }
                                      : (Clay_BorderElementConfig){0},
                 }) {
-                    Clay_String ts = {.length = (int32_t)strlen(tab_names[t]), .chars = tab_names[t]};
+                    Clay_String ts = ui_utils_clay_string(tab_names[t]);
                     CLAY_TEXT(ts,
                               CLAY_TEXT_CONFIG({
                                   .fontSize = 12,
@@ -1446,7 +1354,7 @@ void inspector_widget_render(AppState* state) {
                                   .textColor = active ? THEME_TEXT_PRIMARY : THEME_TEXT_MUTED,
                               }));
                 }
-                Clay_ElementId tab_eid = Clay_GetElementId(tab_id_str);
+                Clay_ElementId tab_eid = CLAY_IDI("Tab", (uint32_t)t);
                 if (Clay_PointerOver(tab_eid) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                     state->inspector_view = modes[t];
                 }
@@ -1498,12 +1406,9 @@ void inspector_widget_render(AppState* state) {
              }) {
             const char* actions[] = {"Copy Payload", "Copy Topic", "Publish Here", "Clear History"};
             const char* actions_done[] = {"Copied!", "Copied!", "Publish Here", "Cleared!"};
-            static char act_ids[4][32];
             for (int a = 0; a < 4; a++) {
                 bool flashing = (s_copied_btn == a);
-                snprintf(act_ids[a], sizeof(act_ids[a]), "Action_%d", a);
-                Clay_String act_id_str = {.length = (int32_t)strlen(act_ids[a]), .chars = act_ids[a]};
-                CLAY(CLAY_SID(act_id_str), {
+                CLAY(CLAY_IDI("Action", (uint32_t)a), {
                     .layout = {.padding = {10, 10, 4, 4}},
                     .backgroundColor = flashing ? THEME_BG_HOVER : THEME_BG_BUTTON,
                     .cornerRadius = CLAY_CORNER_RADIUS(4),
@@ -1513,7 +1418,7 @@ void inspector_widget_render(AppState* state) {
                                        : (Clay_BorderElementConfig){0},
                 }) {
                     const char* label = flashing ? actions_done[a] : actions[a];
-                    Clay_String as = {.length = (int32_t)strlen(label), .chars = label};
+                    Clay_String as = ui_utils_clay_string(label);
                     CLAY_TEXT(as,
                               CLAY_TEXT_CONFIG({
                                   .fontSize = 12,
@@ -1536,13 +1441,8 @@ void inspector_widget_render(AppState* state) {
     }
 
     // Action button click detection
-    static const char* s_act_ids[4] = {"Action_0", "Action_1", "Action_2", "Action_3"};
     for (int a = 0; a < 4; a++) {
-        Clay_String aid = {
-            .length = (int32_t)strlen(s_act_ids[a]),
-            .chars = s_act_ids[a],
-        };
-        if (Clay_PointerOver(Clay_GetElementId(aid)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        if (Clay_PointerOver(CLAY_IDI("Action", (uint32_t)a)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             switch (a) {
                 case 0: // Copy Payload
                     if (state->inspector_view == VIEW_HEX) {
@@ -1558,8 +1458,7 @@ void inspector_widget_render(AppState* state) {
                     SetClipboardText(full_path);
                     break;
                 case 2: // Publish Here
-                    strncpy(state->publish_topic, full_path, sizeof(state->publish_topic) - 1);
-                    state->publish_topic[sizeof(state->publish_topic) - 1] = '\0';
+                    util_str_copy(state->publish_topic, sizeof(state->publish_topic), full_path);
                     state->publish_panel_open = true;
                     break;
                 case 3: // Clear History - reset node display state
@@ -1572,7 +1471,7 @@ void inspector_widget_render(AppState* state) {
                     break;
             }
             s_copied_btn = a;
-            s_copied_timer = 1.0f;
+            ui_utils_flash_start(&s_copied_timer);
         }
     }
 }

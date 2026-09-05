@@ -10,6 +10,7 @@
 #include <sqlite3.h>
 
 #include "model/alloc.h"
+#include "model/util.h"
 #include "platform/db.h"
 #include "platform/log.h"
 
@@ -155,8 +156,7 @@ static void deserialize_subscriptions(BrokerProfile* profile, const char* subs_t
         cJSON* qos_obj = cJSON_GetObjectItem(item, "qos");
         if (topic) {
             ProfileSubscription* sub = &profile->subscriptions[profile->subscription_count];
-            strncpy(sub->topic, topic, sizeof(sub->topic) - 1);
-            sub->topic[sizeof(sub->topic) - 1] = '\0';
+            util_str_copy(sub->topic, sizeof(sub->topic), topic);
             sub->qos = qos_obj ? (uint8_t)qos_obj->valueint : 0;
             profile->subscription_count++;
         }
@@ -295,18 +295,18 @@ int db_load_profiles(Db* db, BrokerProfile* profiles, int max_count) {
         const char* ssh_key = (const char*)sqlite3_column_text(stmt, 21);
         const char* ssh_pass = (const char*)sqlite3_column_text(stmt, 22);
 
-        if (name) strncpy(p->name, name, sizeof(p->name) - 1);
-        if (host) strncpy(p->host, host, sizeof(p->host) - 1);
-        if (cid) strncpy(p->client_id, cid, sizeof(p->client_id) - 1);
-        if (user) strncpy(p->username, user, sizeof(p->username) - 1);
-        if (pass) strncpy(p->password, pass, sizeof(p->password) - 1);
-        if (ca) strncpy(p->tls_ca_cert, ca, sizeof(p->tls_ca_cert) - 1);
-        if (ccert) strncpy(p->tls_client_cert, ccert, sizeof(p->tls_client_cert) - 1);
-        if (ckey) strncpy(p->tls_client_key, ckey, sizeof(p->tls_client_key) - 1);
-        if (ssh_host) strncpy(p->ssh_jump_host, ssh_host, sizeof(p->ssh_jump_host) - 1);
-        if (ssh_user) strncpy(p->ssh_jump_user, ssh_user, sizeof(p->ssh_jump_user) - 1);
-        if (ssh_pass) strncpy(p->ssh_jump_password, ssh_pass, sizeof(p->ssh_jump_password) - 1);
-        if (ssh_key) strncpy(p->ssh_jump_key_path, ssh_key, sizeof(p->ssh_jump_key_path) - 1);
+        util_str_copy(p->name, sizeof(p->name), name);
+        util_str_copy(p->host, sizeof(p->host), host);
+        util_str_copy(p->client_id, sizeof(p->client_id), cid);
+        util_str_copy(p->username, sizeof(p->username), user);
+        util_str_copy(p->password, sizeof(p->password), pass);
+        util_str_copy(p->tls_ca_cert, sizeof(p->tls_ca_cert), ca);
+        util_str_copy(p->tls_client_cert, sizeof(p->tls_client_cert), ccert);
+        util_str_copy(p->tls_client_key, sizeof(p->tls_client_key), ckey);
+        util_str_copy(p->ssh_jump_host, sizeof(p->ssh_jump_host), ssh_host);
+        util_str_copy(p->ssh_jump_user, sizeof(p->ssh_jump_user), ssh_user);
+        util_str_copy(p->ssh_jump_password, sizeof(p->ssh_jump_password), ssh_pass);
+        util_str_copy(p->ssh_jump_key_path, sizeof(p->ssh_jump_key_path), ssh_key);
 
         deserialize_subscriptions(p, subs);
         count++;
@@ -356,8 +356,7 @@ const char* db_get_setting(Db* db, const char* key, const char* fallback) {
     if (rc == SQLITE_ROW) {
         const char* val = (const char*)sqlite3_column_text(stmt, 0);
         if (val) {
-            strncpy(db->setting_value, val, sizeof(db->setting_value) - 1);
-            db->setting_value[sizeof(db->setting_value) - 1] = '\0';
+            util_str_copy(db->setting_value, sizeof(db->setting_value), val);
         } else {
             db->setting_value[0] = '\0';
         }
@@ -441,8 +440,7 @@ int db_load_messages(Db* db, MessageRecord* records, int max_count) {
 
         const char* topic = (const char*)sqlite3_column_text(stmt, 0);
         if (topic) {
-            strncpy(r->topic, topic, sizeof(r->topic) - 1);
-            r->topic[sizeof(r->topic) - 1] = '\0';
+            util_str_copy(r->topic, sizeof(r->topic), topic);
         }
         r->qos = (uint8_t)sqlite3_column_int(stmt, 1);
         r->retained = sqlite3_column_int(stmt, 2) != 0;
@@ -454,12 +452,7 @@ int db_load_messages(Db* db, MessageRecord* records, int max_count) {
             r->payload = alloc_check(malloc((size_t)blob_len));
             memcpy(r->payload, blob, (size_t)blob_len);
             r->payload_len = (uint32_t)blob_len;
-            uint32_t prev_len = r->payload_len < MSG_PREVIEW_LEN - 1 ? r->payload_len : MSG_PREVIEW_LEN - 1;
-            for (uint32_t pi = 0; pi < prev_len; pi++) {
-                unsigned char c = r->payload[pi];
-                r->preview[pi] = (c < 0x20 || c == 0x7f) ? ' ' : (char)c;
-            }
-            r->preview[prev_len] = '\0';
+            util_preview_sanitize(r->preview, sizeof(r->preview), r->payload, r->payload_len);
         }
         count++;
     }
@@ -534,8 +527,7 @@ int db_search_messages(Db* db, const char* query, MessageRecord* results, int ma
 
         const char* topic = (const char*)sqlite3_column_text(stmt, 0);
         if (topic) {
-            strncpy(r->topic, topic, sizeof(r->topic) - 1);
-            r->topic[sizeof(r->topic) - 1] = '\0';
+            util_str_copy(r->topic, sizeof(r->topic), topic);
         }
         r->qos = (uint8_t)sqlite3_column_int(stmt, 1);
         r->retained = sqlite3_column_int(stmt, 2) != 0;
@@ -545,12 +537,7 @@ int db_search_messages(Db* db, const char* query, MessageRecord* results, int ma
         // payload intentionally left NULL/0 - only the sanitized preview is populated
         const void* blob = sqlite3_column_blob(stmt, 5);
         int blob_len = sqlite3_column_bytes(stmt, 5);
-        uint32_t prev_len = (uint32_t)(blob_len < (int)(MSG_PREVIEW_LEN - 1) ? blob_len : (int)(MSG_PREVIEW_LEN - 1));
-        for (uint32_t pi = 0; pi < prev_len; pi++) {
-            unsigned char c = ((const unsigned char*)blob)[pi];
-            r->preview[pi] = (c < 0x20 || c == 0x7f) ? ' ' : (char)c;
-        }
-        r->preview[prev_len] = '\0';
+        util_preview_sanitize(r->preview, sizeof(r->preview), blob, blob_len > 0 ? (size_t)blob_len : 0);
 
         count++;
     }
@@ -588,6 +575,28 @@ bool db_trim_messages(Db* db, int max_rows) {
         return false;
     }
     return true;
+}
+
+void db_flush_history(Db* db, MessageBuf* history, uint64_t pushed, uint64_t* saved) {
+    static MessageRecord batch[256];
+
+    // window_start = monotonic index of the oldest record still in the ring
+    uint64_t window_start = pushed - message_buf_count(history);
+    if (*saved < window_start) *saved = window_start;
+    if (*saved >= pushed) return;
+
+    while (*saved < pushed) {
+        uint32_t new_count = (uint32_t)(pushed - *saved);
+        if (new_count > 256) new_count = 256;
+        uint32_t start = (uint32_t)(*saved - window_start);
+        for (uint32_t i = 0; i < new_count; i++) {
+            const MessageRecord* r = message_buf_get(history, start + i);
+            if (r) batch[i] = *r;
+        }
+        db_save_messages(db, batch, (int)new_count);
+        *saved += new_count;
+    }
+    db_trim_messages(db, 10000);
 }
 
 void db_resolve_path(char* out, size_t out_size) {

@@ -19,7 +19,7 @@ test_arena = executable('test_arena_alloc',
 test('arena_alloc', test_arena)
 
 test_topic = executable('test_topic_tree',
-    'test_topic_tree.c', '../src/model/topic_tree.c',
+    'test_topic_tree.c', '../src/model/topic_tree.c', '../src/model/util.c',
     '../src/model/pool_alloc.c', '../src/model/arena_alloc.c',
     '../src/model/message_buf.c',
     include_directories : test_inc
@@ -33,7 +33,7 @@ test_msgbuf = executable('test_message_buf',
 test('message_buf', test_msgbuf)
 
 test_connlog = executable('test_connection_log',
-    'test_connection_log.c', '../src/model/connection_log.c',
+    'test_connection_log.c', '../src/model/connection_log.c', '../src/model/util.c',
     include_directories : test_inc
 )
 test('connection_log', test_connlog)
@@ -58,13 +58,14 @@ test_csv = executable('test_csv_export',
 test('csv_export', test_csv)
 
 test_ssh_tunnel = executable('test_ssh_tunnel',
-    'test_ssh_tunnel.c', '../src/core/ssh_tunnel.c', '../src/model/connection_log.c',
+    'test_ssh_tunnel.c', '../src/core/ssh_tunnel.c', '../src/model/connection_log.c', '../src/model/util.c',
     include_directories : test_inc
 )
 test('ssh_tunnel', test_ssh_tunnel)
 
 test_db_search = executable('test_db_search',
-    'test_db_search.c', '../src/platform/db.c',
+    'test_db_search.c', '../src/platform/db.c', '../src/model/util.c',
+    '../src/model/message_buf.c',
     include_directories : test_inc,
     dependencies : [sqlite3_dep, cjson_dep]
 )

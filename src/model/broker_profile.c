@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "model/broker_profile.h"
+#include "model/util.h"
 
 void broker_profile_init_default(BrokerProfile* profile) {
     memset(profile, 0, sizeof(BrokerProfile));
@@ -16,8 +17,7 @@ void broker_profile_init_default(BrokerProfile* profile) {
     profile->subscriptions[0].topic[0] = '#';
     profile->subscriptions[0].topic[1] = '\0';
     profile->subscriptions[0].qos = 1;
-    strncpy(profile->subscriptions[1].topic, "$SYS/#", sizeof(profile->subscriptions[1].topic) - 1);
-    profile->subscriptions[1].topic[sizeof(profile->subscriptions[1].topic) - 1] = '\0';
+    util_str_copy(profile->subscriptions[1].topic, sizeof(profile->subscriptions[1].topic), "$SYS/#");
     profile->subscriptions[1].qos = 0;
     profile->subscription_count = 2;
 }

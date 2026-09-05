@@ -9,11 +9,13 @@
 #include "raylib.h"
 
 #include "model/app_state.h"
+#include "model/util.h"
 #include "platform/db.h"
 #include "ui/inspector_widget.h"
 #include "ui/text_input.h"
 #include "ui/theme.h"
 #include "ui/tree_widget.h"
+#include "ui/ui_util.h"
 
 // Tree row indentation: base inset plus a fixed step per nesting level (px).
 #define TREE_INDENT_BASE 16
@@ -59,8 +61,6 @@ static int s_search_result_count = 0;
 static int s_search_expanded_idx = -1; // which result row is expanded in place, -1 = none
 static char s_last_search_query[256] = "";
 static bool s_last_search_mode = false;
-static char s_search_row_ids[SEARCH_MAX_RESULTS][32];
-static char s_search_open_ids[SEARCH_MAX_RESULTS][32];
 static char s_search_ts_bufs[SEARCH_MAX_RESULTS][16];
 static char s_search_meta_bufs[SEARCH_MAX_RESULTS][32];
 
@@ -92,7 +92,7 @@ static bool node_matches_filter(TopicNode* node, const char* filter) {
     return false;
 }
 
-static void render_node(AppState* state, TopicNode* node, int depth, uint64_t now_us) {
+static void render_node(AppState* state, TopicNode* node, int depth, uint64_t util_now_us) {
     if (!node_matches_filter(node, state->topic_filter)) return;
 
     bool is_selected = (state->selected_topic == node);
@@ -104,27 +104,27 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t no
     char row_id_buf[128];
     snprintf(expand_id_buf, sizeof(expand_id_buf), "exp_%p", (void*)node);
     snprintf(row_id_buf, sizeof(row_id_buf), "row_%p", (void*)node);
-    Clay_String expand_id_str = {.length = (int32_t)strlen(expand_id_buf), .chars = expand_id_buf};
-    Clay_String row_id_str = {.length = (int32_t)strlen(row_id_buf), .chars = row_id_buf};
+    Clay_String expand_id_str = ui_utils_clay_string(expand_id_buf);
+    Clay_String row_id_str = ui_utils_clay_string(row_id_buf);
 
     // Outer node container - used only for background/border styling
     char node_id_buf[128];
     snprintf(node_id_buf, sizeof(node_id_buf), "node_%p", (void*)node);
-    Clay_String node_id_str = {.length = (int32_t)strlen(node_id_buf), .chars = node_id_buf};
+    Clay_String node_id_str = ui_utils_clay_string(node_id_buf);
 
     uint16_t left_pad = (uint16_t)(TREE_INDENT_BASE + depth * TREE_INDENT_STEP);
 
     // Selected rows keep their own background
     Clay_Color flash_bg = {0};
-    if (!is_selected && now_us != 0) {
-        float flash = tree_flash_alpha(now_us, node->last_message_ts);
+    if (!is_selected && util_now_us != 0) {
+        float flash = tree_flash_alpha(util_now_us, node->last_message_ts);
         if (flash > 0.0f) {
             flash_bg = THEME_BG_FLASH;
             flash_bg.a = flash * 255.0f;
         } else {
             // Nothing on this topic itself - show a calmer trace of traffic further down the subtree
             flash_bg = THEME_BG_FLASH_SUBTREE;
-            flash_bg.a = tree_subtree_flash_alpha(now_us, node->last_subtree_message_ts) * 255.0f;
+            flash_bg.a = tree_subtree_flash_alpha(util_now_us, node->last_subtree_message_ts) * 255.0f;
         }
     }
 
@@ -142,7 +142,7 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t no
         {
             char r1[128];
             snprintf(r1, sizeof(r1), "r1_%p", (void*)node);
-            Clay_String r1cs = {.length = (int32_t)strlen(r1), .chars = r1};
+            Clay_String r1cs = ui_utils_clay_string(r1);
             CLAY(CLAY_SID(r1cs),
                  {
                      .layout =
@@ -185,7 +185,7 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t no
                                  .childAlignment = {.y = CLAY_ALIGN_Y_CENTER},
                              },
                      }) {
-                    Clay_String seg_str = {.length = (int32_t)strlen(node->segment), .chars = node->segment};
+                    Clay_String seg_str = ui_utils_clay_string(node->segment);
                     CLAY_TEXT(seg_str,
                               CLAY_TEXT_CONFIG({
                                   .fontSize = 14,
@@ -203,11 +203,8 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t no
                     if (has_messages) {
                         char cb[128];
                         snprintf(cb, sizeof(cb), "cb_%p", (void*)node);
-                        Clay_String cbcs = {.length = (int32_t)strlen(cb), .chars = cb};
-                        Clay_String cnt_str = {
-                            .length = (int32_t)strlen(node->msg_count_str),
-                            .chars = node->msg_count_str,
-                        };
+                        Clay_String cbcs = ui_utils_clay_string(cb);
+                        Clay_String cnt_str = ui_utils_clay_string(node->msg_count_str);
                         CLAY(CLAY_SID(cbcs),
                              {
                                  .layout = {.padding = {6, 6, 2, 2}},
@@ -227,11 +224,8 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t no
                     if (has_children && node->subtree_message_count > 0) {
                         char sb[128];
                         snprintf(sb, sizeof(sb), "sb_%p", (void*)node);
-                        Clay_String sbcs = {.length = (int32_t)strlen(sb), .chars = sb};
-                        Clay_String sum_str = {
-                            .length = (int32_t)strlen(node->subtree_count_str),
-                            .chars = node->subtree_count_str,
-                        };
+                        Clay_String sbcs = ui_utils_clay_string(sb);
+                        Clay_String sum_str = ui_utils_clay_string(node->subtree_count_str);
                         CLAY(CLAY_SID(sbcs),
                              {
                                  .layout = {.padding = {6, 6, 2, 2}},
@@ -253,7 +247,7 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t no
         if (node->last_payload_preview[0] != '\0') {
             char r2[128];
             snprintf(r2, sizeof(r2), "r2_%p", (void*)node);
-            Clay_String r2cs = {.length = (int32_t)strlen(r2), .chars = r2};
+            Clay_String r2cs = ui_utils_clay_string(r2);
 
             const char* full = node->last_payload_preview;
             size_t full_len = strlen(full);
@@ -310,7 +304,7 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t no
 
     if (has_children && node->expanded) {
         for (uint32_t i = 0; i < node->child_count; i++) {
-            render_node(state, node->children[i], depth + 1, now_us);
+            render_node(state, node->children[i], depth + 1, util_now_us);
         }
     }
 }
@@ -350,30 +344,15 @@ static void render_search_results(AppState* state) {
         MessageRecord* r = &s_search_results[i];
         bool expanded = (i == s_search_expanded_idx);
 
-        snprintf(s_search_row_ids[i], sizeof(s_search_row_ids[i]), "SR_%d", i);
-        snprintf(s_search_open_ids[i], sizeof(s_search_open_ids[i]), "SROpen_%d", i);
-        time_t secs = (time_t)(r->timestamp_us / 1000000ull);
-        struct tm tm_info;
-        localtime_r(&secs, &tm_info);
-        strftime(s_search_ts_bufs[i], sizeof(s_search_ts_bufs[i]), "%H:%M:%S", &tm_info);
+        util_fmt_hhmmss(r->timestamp_us, s_search_ts_bufs[i], sizeof(s_search_ts_bufs[i]));
         snprintf(s_search_meta_bufs[i], sizeof(s_search_meta_bufs[i]), "Q%u%s", r->qos, r->retained ? " R" : "");
 
-        Clay_String row_cs = {.length = (int32_t)strlen(s_search_row_ids[i]), .chars = s_search_row_ids[i]};
-        Clay_String open_cs = {.length = (int32_t)strlen(s_search_open_ids[i]), .chars = s_search_open_ids[i]};
-        Clay_String topic_cs = {.length = (int32_t)strlen(r->topic), .chars = r->topic};
-        Clay_String meta_cs = {.length = (int32_t)strlen(s_search_meta_bufs[i]), .chars = s_search_meta_bufs[i]};
-        Clay_String ts_cs = {.length = (int32_t)strlen(s_search_ts_bufs[i]), .chars = s_search_ts_bufs[i]};
-        Clay_String prev_cs = {.length = (int32_t)strlen(r->preview), .chars = r->preview};
+        Clay_String topic_cs = ui_utils_clay_string(r->topic);
+        Clay_String meta_cs = ui_utils_clay_string(s_search_meta_bufs[i]);
+        Clay_String ts_cs = ui_utils_clay_string(s_search_ts_bufs[i]);
+        Clay_String prev_cs = ui_utils_clay_string(r->preview);
 
-        char hdr_id[40], topic_wrap_id[40], prev_wrap_id[40];
-        snprintf(hdr_id, sizeof(hdr_id), "SRHdr_%d", i);
-        snprintf(topic_wrap_id, sizeof(topic_wrap_id), "SRTopic_%d", i);
-        snprintf(prev_wrap_id, sizeof(prev_wrap_id), "SRPrev_%d", i);
-        Clay_String hdr_cs = {.length = (int32_t)strlen(hdr_id), .chars = hdr_id};
-        Clay_String topic_wrap_cs = {.length = (int32_t)strlen(topic_wrap_id), .chars = topic_wrap_id};
-        Clay_String prev_wrap_cs = {.length = (int32_t)strlen(prev_wrap_id), .chars = prev_wrap_id};
-
-        CLAY(CLAY_SID(row_cs),
+        CLAY(CLAY_IDI("SR", (uint32_t)i),
              {
                  .layout =
                      {
@@ -386,7 +365,7 @@ static void render_search_results(AppState* state) {
                  .border = expanded ? (Clay_BorderElementConfig){.width = {.left = 3}, .color = THEME_ACCENT_BLUE}
                                     : (Clay_BorderElementConfig){0},
              }) {
-            CLAY(CLAY_SID(hdr_cs),
+            CLAY(CLAY_IDI("SRHdr", (uint32_t)i),
                  {
                      .layout =
                          {
@@ -401,7 +380,7 @@ static void render_search_results(AppState* state) {
                               .fontId = FONT_DEFAULT,
                               .textColor = expanded ? THEME_ACCENT_BLUE : THEME_TEXT_DIM,
                           }));
-                CLAY(CLAY_SID(topic_wrap_cs),
+                CLAY(CLAY_IDI("SRTopic", (uint32_t)i),
                      {
                          .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
                      }) {
@@ -424,7 +403,7 @@ static void render_search_results(AppState* state) {
                               .fontId = FONT_MONO,
                               .textColor = THEME_TEXT_DIM,
                           }));
-                CLAY(CLAY_SID(open_cs),
+                CLAY(CLAY_IDI("SROpen", (uint32_t)i),
                      {
                          .layout = {.sizing = {CLAY_SIZING_FIT(0), CLAY_SIZING_FIT(0)}, .padding = {6, 6, 2, 2}},
                          .backgroundColor = THEME_BG_BUTTON,
@@ -439,7 +418,7 @@ static void render_search_results(AppState* state) {
                 }
             }
             // a preview of THIS matched message: collapsed = one truncated line, expanded = full wrapped text
-            CLAY(CLAY_SID(prev_wrap_cs),
+            CLAY(CLAY_IDI("SRPrev", (uint32_t)i),
                  {
                      .layout =
                          {
@@ -458,8 +437,9 @@ static void render_search_results(AppState* state) {
             }
         }
 
-        bool open_clicked = Clay_PointerOver(Clay_GetElementId(open_cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
-        bool row_hovered = Clay_PointerOver(Clay_GetElementId(row_cs));
+        bool open_clicked =
+            Clay_PointerOver(CLAY_IDI("SROpen", (uint32_t)i)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+        bool row_hovered = Clay_PointerOver(CLAY_IDI("SR", (uint32_t)i));
         if (open_clicked) {
             TopicNode* node = topic_tree_find(&state->topic_tree, r->topic);
             if (node) {
@@ -539,8 +519,7 @@ void tree_widget_render(AppState* state, Db* db) {
     // Re-run the search only when the query text changed or we just switched into search mode
     bool search_mode = state->topic_filter_search_mode;
     if (search_mode && (!s_last_search_mode || strcmp(state->topic_filter, s_last_search_query) != 0)) {
-        strncpy(s_last_search_query, state->topic_filter, sizeof(s_last_search_query) - 1);
-        s_last_search_query[sizeof(s_last_search_query) - 1] = '\0';
+        util_str_copy(s_last_search_query, sizeof(s_last_search_query), state->topic_filter);
         int n = db_search_messages(db, state->topic_filter, s_search_results, SEARCH_MAX_RESULTS);
         s_search_result_count = n > 0 ? n : 0;
         s_search_expanded_idx = -1; // stale index into the old result set otherwise
@@ -603,7 +582,7 @@ void tree_widget_render(AppState* state, Db* db) {
                     } else {
                         filter_display[flen] = '\0';
                     }
-                    Clay_String fs = {.length = (int32_t)strlen(filter_display), .chars = filter_display};
+                    Clay_String fs = ui_utils_clay_string(filter_display);
                     CLAY_TEXT(fs,
                               CLAY_TEXT_CONFIG({
                                   .fontSize = 13,
@@ -669,20 +648,18 @@ void tree_widget_render(AppState* state, Db* db) {
             render_search_results(state);
         } else {
             TopicTree* tree = &state->topic_tree;
-            struct timespec ts_now;
-            clock_gettime(CLOCK_REALTIME, &ts_now);
-            uint64_t now_us = (uint64_t)ts_now.tv_sec * 1000000ULL + (uint64_t)(ts_now.tv_nsec / 1000);
+            uint64_t now = util_now_us();
 
             static TopicNode* s_flash_last_selected = NULL;
             static uint64_t s_flash_selection_changed_us = 0;
             if (state->selected_topic != s_flash_last_selected) {
                 s_flash_last_selected = state->selected_topic;
-                s_flash_selection_changed_us = now_us;
+                s_flash_selection_changed_us = now;
             }
-            bool suppress_flash = (now_us - s_flash_selection_changed_us) < TREE_FLASH_SELECTION_GRACE_US;
+            bool suppress_flash = (now - s_flash_selection_changed_us) < TREE_FLASH_SELECTION_GRACE_US;
 
             for (uint32_t i = 0; i < tree->root_count; i++) {
-                render_node(state, tree->roots[i], 0, suppress_flash ? 0 : now_us);
+                render_node(state, tree->roots[i], 0, suppress_flash ? 0 : now);
             }
 
             if (tree->root_count == 0) {

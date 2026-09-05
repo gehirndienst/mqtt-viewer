@@ -8,6 +8,7 @@
 
 #include "ui/menu_bar.h"
 #include "ui/theme.h"
+#include "ui/ui_util.h"
 
 void menu_bar_render(AppState* state) {
     // throttle broker address string to prevent reflow on every frame
@@ -64,7 +65,7 @@ void menu_bar_render(AppState* state) {
         CLAY(CLAY_ID("MenuBarSpacer"), {.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}}}) {}
 
         if (broker_buf[0] != '\0') {
-            Clay_String bs = {.length = (int32_t)strlen(broker_buf), .chars = broker_buf};
+            Clay_String bs = ui_utils_clay_string(broker_buf);
             CLAY_TEXT(bs,
                       CLAY_TEXT_CONFIG({
                           .fontSize = 12,

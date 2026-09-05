@@ -9,9 +9,11 @@
 #include "raylib.h"
 
 #include "model/connection_log.h"
+#include "model/util.h"
 #include "ui/publish_panel.h"
 #include "ui/text_input.h"
 #include "ui/theme.h"
+#include "ui/ui_util.h"
 
 #define PP_BUF_COUNT 32
 #define PP_BUF_SIZE 512
@@ -199,10 +201,7 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
                 CLAY_TEXT(CLAY_STRING("Topic"), THEME_TEXT_SMALL);
             }
             // Input box
-            Clay_String topic_cs = {
-                .length = (int32_t)strlen(s_topic_display),
-                .chars = s_topic_display,
-            };
+            Clay_String topic_cs = ui_utils_clay_string(s_topic_display);
             CLAY(CLAY_ID("PPTopicInput"),
                  {
                      .layout =
@@ -236,10 +235,7 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
                  }) {
                 CLAY_TEXT(CLAY_STRING("Payload"), THEME_TEXT_SMALL);
             }
-            Clay_String payload_cs = {
-                .length = (int32_t)strlen(s_payload_display),
-                .chars = s_payload_display,
-            };
+            Clay_String payload_cs = ui_utils_clay_string(s_payload_display);
             CLAY(CLAY_ID("PPPayloadInput"),
                  {
                      .layout =
@@ -274,29 +270,22 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
             for (int q = 0; q < 3; q++) {
                 bool active_qos = ((int)state->publish_qos == q);
                 char* qid_buf = pp_next_buf();
-                strncpy(qid_buf, s_qos_ids[q], PP_BUF_SIZE - 1);
-                qid_buf[PP_BUF_SIZE - 1] = '\0';
-                Clay_String qid_cs = {.length = (int32_t)strlen(qid_buf), .chars = qid_buf};
+                util_str_copy(qid_buf, PP_BUF_SIZE, s_qos_ids[q]);
+                Clay_String qid_cs = ui_utils_clay_string(qid_buf);
                 CLAY(CLAY_SID(qid_cs),
                      {
                          .layout = {.padding = {10, 10, 4, 4}},
                          .backgroundColor = active_qos ? THEME_BG_SELECTED : THEME_BG_BUTTON,
                          .cornerRadius = CLAY_CORNER_RADIUS(3),
                      }) {
-                    Clay_String ql = {
-                        .length = (int32_t)strlen(s_qos_labels[q]),
-                        .chars = s_qos_labels[q],
-                    };
+                    Clay_String ql = ui_utils_clay_string(s_qos_labels[q]);
                     CLAY_TEXT(ql, THEME_TEXT_SMALL);
                 }
             }
 
             // Retain toggle
             CLAY_TEXT(CLAY_STRING("Retain:"), THEME_TEXT_SMALL);
-            Clay_String retain_cs = {
-                .length = (int32_t)strlen(s_retain_display),
-                .chars = s_retain_display,
-            };
+            Clay_String retain_cs = ui_utils_clay_string(s_retain_display);
             CLAY(CLAY_ID("PPRetainBtn"),
                  {
                      .layout = {.padding = {8, 8, 4, 4}},
@@ -346,10 +335,7 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
     }
     // QoS buttons
     for (int q = 0; q < 3; q++) {
-        Clay_String qid_cs = {
-            .length = (int32_t)strlen(s_qos_ids[q]),
-            .chars = s_qos_ids[q],
-        };
+        Clay_String qid_cs = ui_utils_clay_string(s_qos_ids[q]);
         if (Clay_PointerOver(Clay_GetElementId(qid_cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             set_qos = q;
         }

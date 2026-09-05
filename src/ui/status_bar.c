@@ -8,6 +8,7 @@
 
 #include "ui/status_bar.h"
 #include "ui/theme.h"
+#include "ui/ui_util.h"
 
 void status_bar_render(AppState* state) {
     static char stats[128] = "";
@@ -40,20 +41,17 @@ void status_bar_render(AppState* state) {
              .backgroundColor = THEME_BG_BAR,
              .border = {.width = {.top = 1}, .color = THEME_BORDER},
          }) {
-        Clay_String stats_str = {.length = (int32_t)strlen(stats), .chars = stats};
+        Clay_String stats_str = ui_utils_clay_string(stats);
         CLAY_TEXT(stats_str, THEME_TEXT_SMALL);
 
         if (show_count > 0) {
             for (int i = 0; i < show_count; i++) {
-                char div_id[16];
-                snprintf(div_id, sizeof(div_id), "SBDiv_%d", i);
-                Clay_String div_id_cs = {.length = (int32_t)strlen(div_id), .chars = div_id};
-                CLAY(CLAY_SID(div_id_cs),
+                CLAY(CLAY_IDI("SBDiv", (uint32_t)i),
                      {
                          .layout = {.sizing = {CLAY_SIZING_FIXED(1), CLAY_SIZING_FIXED(12)}},
                          .backgroundColor = THEME_BORDER,
                      }) {}
-                Clay_String ss = {.length = (int32_t)strlen(sub_stats[i]), .chars = sub_stats[i]};
+                Clay_String ss = ui_utils_clay_string(sub_stats[i]);
                 CLAY_TEXT(ss, THEME_TEXT_SMALL);
             }
         }
