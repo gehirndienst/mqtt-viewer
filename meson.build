@@ -19,7 +19,6 @@ endif
 raylib_dep = dependency('raylib', fallback : ['raylib', 'raylib_dep'])
 sqlite3_dep = dependency('sqlite3', fallback : ['sqlite3', 'sqlite3_dep'])
 mosquitto_dep = dependency('libmosquitto')
-cjson_dep = dependency('libcjson', required : true)
 threads_dep = dependency('threads')
 
 # Math library (needed on Linux)
@@ -71,12 +70,12 @@ src_platform = files(
 
 src_main = files('src/main.c')
 
-src_inc = include_directories('src')
+src_inc = include_directories('src', 'src/compat')
 
 mqtt_viewer = executable('mqtt-viewer',
     src_main + src_model + src_core + src_ui + src_platform,
     include_directories : [src_inc],
-    dependencies : [clay_dep, raylib_dep, sqlite3_dep, mosquitto_dep, cjson_dep, m_dep, threads_dep],
+    dependencies : [clay_dep, raylib_dep, sqlite3_dep, mosquitto_dep, m_dep, threads_dep],
     install : true
 )
 

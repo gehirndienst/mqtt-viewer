@@ -85,6 +85,55 @@ TEST(cache_skips_rerun_until_key_changes) {
     ASSERT_TRUE(json_pp_run_cached(&s_pp, src, 101));
 }
 
+TEST(run_len_stops_at_length_not_nul) {
+    const char raw[] = "{\"v\": 5}GARBAGE";
+    json_pp_run_len(&s_pp, raw, 8);
+    ASSERT_EQ(s_pp.line_count, 3);
+    ASSERT_STR_EQ(s_pp.lines[1].val, "5");
+}
+
+TEST(line_number_handles_atoms_and_numeric_strings) {
+    json_pp_run(&s_pp, "{\"a\": 1.5, \"b\": \"2e3\", \"c\": \"x\", \"d\": true}");
+    double v = 0;
+    ASSERT_TRUE(json_pp_line_number(&s_pp.lines[1], &v));
+    ASSERT_TRUE(v == 1.5);
+    ASSERT_TRUE(json_pp_line_number(&s_pp.lines[2], &v));
+    ASSERT_TRUE(v == 2000.0);
+    ASSERT_FALSE(json_pp_line_number(&s_pp.lines[3], &v));
+    ASSERT_FALSE(json_pp_line_number(&s_pp.lines[4], &v));
+    ASSERT_FALSE(json_pp_line_number(&s_pp.lines[0], &v)); // "{"
+}
+
+TEST(line_string_unquotes_and_unescapes) {
+    json_pp_run(&s_pp, "[\"plain\", \"q\\\"uote\\\\back\\/slash\\n\", 42]");
+    char out[64];
+    ASSERT_TRUE(json_pp_line_string(&s_pp.lines[1], out, sizeof(out)));
+    ASSERT_STR_EQ(out, "plain");
+    ASSERT_TRUE(json_pp_line_string(&s_pp.lines[2], out, sizeof(out)));
+    ASSERT_STR_EQ(out, "q\"uote\\back/slash\n");
+    ASSERT_FALSE(json_pp_line_string(&s_pp.lines[3], out, sizeof(out))); // 42 is not a string
+    char tiny[4];
+    ASSERT_TRUE(json_pp_line_string(&s_pp.lines[1], tiny, sizeof(tiny)));
+    ASSERT_STR_EQ(tiny, "pla");
+}
+
+TEST(find_by_dot_path) {
+    json_pp_run(&s_pp, "{\"a\": {\"b\": [10, 20]}, \"c\": 3}");
+    const JsonPPLine* l = json_pp_find(&s_pp, "a.b.1");
+    ASSERT_NOT_NULL(l);
+    ASSERT_STR_EQ(l->val, "20");
+    l = json_pp_find(&s_pp, "c");
+    ASSERT_NOT_NULL(l);
+    ASSERT_STR_EQ(l->val, "3");
+    ASSERT_NULL(json_pp_find(&s_pp, "a.b.2"));
+    ASSERT_NULL(json_pp_find(&s_pp, "zzz"));
+    // the root scalar is reachable as ""
+    json_pp_run(&s_pp, "42");
+    l = json_pp_find(&s_pp, "");
+    ASSERT_NOT_NULL(l);
+    ASSERT_STR_EQ(l->val, "42");
+}
+
 int main(void) {
     printf("json_pp tests:\n");
     RUN(nested_object_lines_paths_and_kinds);
@@ -93,6 +142,10 @@ int main(void) {
     RUN(malformed_input_terminates);
     RUN(looks_like_json);
     RUN(cache_skips_rerun_until_key_changes);
+    RUN(run_len_stops_at_length_not_nul);
+    RUN(line_number_handles_atoms_and_numeric_strings);
+    RUN(line_string_unquotes_and_unescapes);
+    RUN(find_by_dot_path);
     printf("All json_pp tests passed\n");
     return 0;
 }

@@ -9,12 +9,11 @@
 #include <string.h>
 #include <time.h>
 
-#include <cjson/cJSON.h>
-
 #include "clay.h"
 #include "raylib.h"
 
 #include "model/chart_series.h"
+#include "model/json_pp.h"
 #include "platform/ui.h"
 #include "ui/theme.h"
 #include "ui/ui_util.h"
@@ -40,62 +39,6 @@ static void chart_panel_grid(int n, int* cols, int* rows) {
     }
     *cols = 4;
     *rows = (n + 3) / 4;
-}
-
-static bool node_to_double(const cJSON* node, double* out) {
-    if (!node) return false;
-    if (cJSON_IsNumber(node)) {
-        if (!isfinite(node->valuedouble)) return false;
-        *out = node->valuedouble;
-        return true;
-    }
-    if (cJSON_IsString(node) && node->valuestring) {
-        char* end = NULL;
-        double v = strtod(node->valuestring, &end);
-        if (end == node->valuestring || !isfinite(v)) return false;
-        *out = v;
-        return true;
-    }
-    return false;
-}
-
-// Whole payload as a number (no dot path): plain strtod on the first 63 bytes
-static bool extract_scalar(const uint8_t* json, uint32_t len, double* out) {
-    char buf[64];
-    uint32_t n = len < sizeof(buf) - 1 ? len : (uint32_t)(sizeof(buf) - 1);
-    memcpy(buf, json, n);
-    buf[n] = '\0';
-    char* end = NULL;
-    double v = strtod(buf, &end);
-    if (end == buf || !isfinite(v)) return false;
-    *out = v;
-    return true;
-}
-
-// Walk an already-parsed document along "a.b.0.c"
-static bool extract_path(const cJSON* root, const char* dot_path, double* out) {
-    const cJSON* node = root;
-    const char* p = dot_path;
-    char seg[64];
-    while (*p && node) {
-        const char* dot = strchr(p, '.');
-        size_t slen = dot ? (size_t)(dot - p) : strlen(p);
-        if (slen >= sizeof(seg)) slen = sizeof(seg) - 1;
-        memcpy(seg, p, slen);
-        seg[slen] = '\0';
-        if (cJSON_IsObject(node)) {
-            node = cJSON_GetObjectItemCaseSensitive(node, seg);
-        } else if (cJSON_IsArray(node)) {
-            char* end = NULL;
-            long idx = strtol(seg, &end, 10);
-            if (end == seg || idx < 0) return false;
-            node = cJSON_GetArrayItem(node, (int)idx);
-        } else {
-            return false;
-        }
-        p = dot ? dot + 1 : p + slen;
-    }
-    return node_to_double(node, out);
 }
 
 static int chart_panel_active_at(const AppState* state, int i) {
@@ -358,25 +301,18 @@ void chart_panel_capture_sample(AppState* state, const char* topic, const uint8_
                                 uint64_t ts_us) {
     if (!payload || payload_len == 0) return;
 
-    // Several series can chart different fields of the same topic - parse the payload once for all of them
-    cJSON* root = NULL;
-    bool parse_tried = false;
+    // several series can chart different fields of the same topic
+    // format the payload once for all of them
+    static JsonPP s_pp;
+    bool formatted = false;
     for (int i = 0; i < CHART_MAX_SERIES; i++) {
         ChartSeries* s = &state->chart_series[i];
         if (!s->active || strcmp(s->topic, topic) != 0) continue;
-
-        double v;
-        bool ok;
-        if (s->dot_path[0] == '\0') {
-            ok = extract_scalar(payload, payload_len, &v);
-        } else {
-            if (!parse_tried) {
-                parse_tried = true;
-                root = cJSON_ParseWithLength((const char*)payload, payload_len);
-            }
-            ok = root && extract_path(root, s->dot_path, &v);
+        if (!formatted) {
+            json_pp_run_len(&s_pp, (const char*)payload, payload_len);
+            formatted = true;
         }
-        if (ok) chart_series_push_sample(s, ts_us, v);
+        double v;
+        if (json_pp_line_number(json_pp_find(&s_pp, s->dot_path), &v)) chart_series_push_sample(s, ts_us, v);
     }
-    if (root) cJSON_Delete(root);
 }

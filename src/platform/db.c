@@ -6,10 +6,10 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include <cjson/cJSON.h>
 #include <sqlite3.h>
 
 #include "model/alloc.h"
+#include "model/json_pp.h"
 #include "model/util.h"
 #include "platform/db.h"
 #include "platform/log.h"
@@ -122,47 +122,81 @@ void db_close(Db* db) {
     free(db);
 }
 
-static char* serialize_subscriptions(const BrokerProfile* profile) {
-    cJSON* arr = cJSON_CreateArray();
-    if (!arr) return NULL;
-
-    for (int i = 0; i < profile->subscription_count; i++) {
-        cJSON* obj = cJSON_CreateObject();
-        if (!obj) continue;
-        cJSON_AddStringToObject(obj, "topic", profile->subscriptions[i].topic);
-        cJSON_AddNumberToObject(obj, "qos", profile->subscriptions[i].qos);
-        cJSON_AddItemToArray(arr, obj);
+// Append @p src to @p out as a JSON string literal with quotes, escaping what json_pp_line_string() unescapes
+static size_t append_json_string(char* out, size_t cap, size_t pos, const char* src) {
+    if (pos < cap) out[pos++] = '"';
+    for (const char* p = src; *p && pos + 2 < cap; p++) {
+        char esc = 0;
+        switch (*p) {
+            case '"':
+                esc = '"';
+                break;
+            case '\\':
+                esc = '\\';
+                break;
+            case '\n':
+                esc = 'n';
+                break;
+            case '\r':
+                esc = 'r';
+                break;
+            case '\t':
+                esc = 't';
+                break;
+            default:
+                break;
+        }
+        if (esc) {
+            out[pos++] = '\\';
+            out[pos++] = esc;
+        } else {
+            out[pos++] = *p;
+        }
     }
+    if (pos < cap) out[pos++] = '"';
+    return pos;
+}
 
-    char* json = cJSON_PrintUnformatted(arr);
-    cJSON_Delete(arr);
-    return json;
+// [{"topic":"a/#","qos":1},...]
+static char* serialize_subscriptions(const BrokerProfile* profile) {
+    // worst case every topic byte escapes to two, plus the fixed per-entry text
+    size_t cap = 4 + (size_t)profile->subscription_count * (2 * sizeof(profile->subscriptions[0].topic) + 32);
+    char* out = alloc_check(malloc(cap));
+    size_t pos = 0;
+    out[pos++] = '[';
+    for (int i = 0; i < profile->subscription_count; i++) {
+        if (i > 0 && pos < cap) out[pos++] = ',';
+        pos += (size_t)snprintf(out + pos, cap - pos, "{\"topic\":");
+        pos = append_json_string(out, cap, pos, profile->subscriptions[i].topic);
+        pos += (size_t)snprintf(out + pos, cap - pos, ",\"qos\":%u}", (unsigned)profile->subscriptions[i].qos);
+    }
+    if (pos < cap) out[pos++] = ']';
+    out[pos < cap ? pos : cap - 1] = '\0';
+    return out;
 }
 
 static void deserialize_subscriptions(BrokerProfile* profile, const char* subs_text) {
     if (!subs_text) return;
 
-    cJSON* arr = cJSON_Parse(subs_text);
-    if (!arr || !cJSON_IsArray(arr)) {
-        cJSON_Delete(arr);
-        return;
-    }
+    static JsonPP s_pp; // ~1.6 MB, keep it off the stack
+    json_pp_run(&s_pp, subs_text);
+    if (s_pp.line_count == 0 || s_pp.lines[0].val[0] != '[') return;
 
-    int n = cJSON_GetArraySize(arr);
     profile->subscription_count = 0;
-    for (int i = 0; i < n && profile->subscription_count < MAX_PROFILE_SUBS; i++) {
-        cJSON* item = cJSON_GetArrayItem(arr, i);
-        const char* topic = cJSON_GetStringValue(cJSON_GetObjectItem(item, "topic"));
-        cJSON* qos_obj = cJSON_GetObjectItem(item, "qos");
-        if (topic) {
-            ProfileSubscription* sub = &profile->subscriptions[profile->subscription_count];
-            util_str_copy(sub->topic, sizeof(sub->topic), topic);
-            sub->qos = qos_obj ? (uint8_t)qos_obj->valueint : 0;
-            profile->subscription_count++;
-        }
-    }
+    for (int i = 0; profile->subscription_count < MAX_PROFILE_SUBS; i++) {
+        char path[32];
+        snprintf(path, sizeof(path), "%d.topic", i);
+        const JsonPPLine* topic = json_pp_find(&s_pp, path);
+        if (!topic) break;
+        snprintf(path, sizeof(path), "%d.qos", i);
+        const JsonPPLine* qos = json_pp_find(&s_pp, path);
 
-    cJSON_Delete(arr);
+        ProfileSubscription* sub = &profile->subscriptions[profile->subscription_count];
+        if (!json_pp_line_string(topic, sub->topic, sizeof(sub->topic))) continue;
+        double q = 0;
+        sub->qos = json_pp_line_number(qos, &q) ? (uint8_t)q : 0;
+        profile->subscription_count++;
+    }
 }
 
 bool db_save_profile(Db* db, BrokerProfile* profile) {
@@ -184,7 +218,7 @@ bool db_save_profile(Db* db, BrokerProfile* profile) {
     int rc = sqlite3_prepare_v2(db->db, sql, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
         LOG_ERROR("db_save_profile: prepare failed: %s", sqlite3_errmsg(db->db));
-        cJSON_free(subs_json);
+        free(subs_json);
         return false;
     }
 
@@ -218,7 +252,7 @@ bool db_save_profile(Db* db, BrokerProfile* profile) {
         profile->id = (int)sqlite3_last_insert_rowid(db->db);
     }
     sqlite3_finalize(stmt);
-    cJSON_free(subs_json);
+    free(subs_json);
 
     if (rc != SQLITE_DONE) {
         LOG_ERROR("db_save_profile: step failed: %s", sqlite3_errmsg(db->db));

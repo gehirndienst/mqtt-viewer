@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -220,8 +221,12 @@ bool json_pp_looks_like_json(const char* src) {
 }
 
 void json_pp_run(JsonPP* pp, const char* src) {
+    json_pp_run_len(pp, src, strlen(src));
+}
+
+void json_pp_run_len(JsonPP* pp, const char* src, size_t len) {
     pp->src = src;
-    pp->src_len = (int)strlen(src);
+    pp->src_len = len > (size_t)INT32_MAX ? INT32_MAX : (int)len;
     pp->pos = 0;
     pp->depth = 0;
     pp->path_len = 0;
@@ -242,4 +247,66 @@ bool json_pp_run_cached(JsonPP* pp, const char* src, uint64_t key) {
 void json_pp_mark_cached(JsonPP* pp, const char* src, uint64_t key) {
     pp->cache_src = src;
     pp->cache_key = key;
+}
+
+const JsonPPLine* json_pp_find(const JsonPP* pp, const char* dot_path) {
+    for (int i = 0; i < pp->line_count; i++) {
+        if (strcmp(pp->lines[i].dot_path, dot_path) == 0) return &pp->lines[i];
+    }
+    return NULL;
+}
+
+bool json_pp_line_number(const JsonPPLine* line, double* out) {
+    if (!line || !line->is_numeric) return false;
+    const char* text = line->val;
+    char inner[JSON_PP_VAL_LEN];
+    if (line->val_kind == JSON_PP_VAL_STRING) {
+        if (!json_pp_line_string(line, inner, sizeof(inner))) return false;
+        text = inner;
+    }
+    char* end = NULL;
+    double v = strtod(text, &end);
+    if (end == text || !isfinite(v)) return false;
+    *out = v;
+    return true;
+}
+
+bool json_pp_line_string(const JsonPPLine* line, char* out, size_t cap) {
+    if (!line || cap == 0 || line->val_kind != JSON_PP_VAL_STRING) return false;
+    size_t vlen = strlen(line->val);
+    const char* p = line->val + 1;
+    const char* end = line->val + vlen - (vlen >= 2 && line->val[vlen - 1] == '"' ? 1 : 0);
+
+    size_t o = 0;
+    while (p < end && o < cap - 1) {
+        char ch = *p++;
+        if (ch == '\\' && p < end) {
+            char e = *p++;
+            switch (e) {
+                case 'n':
+                    ch = '\n';
+                    break;
+                case 'r':
+                    ch = '\r';
+                    break;
+                case 't':
+                    ch = '\t';
+                    break;
+                case '"':
+                case '\\':
+                case '/':
+                    ch = e;
+                    break;
+                default:
+                    // unknown escape (incl. \uXXXX): keep it verbatim
+                    out[o++] = '\\';
+                    if (o >= cap - 1) break;
+                    ch = e;
+                    break;
+            }
+        }
+        out[o++] = ch;
+    }
+    out[o] = '\0';
+    return true;
 }

@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+#include "model/broker_profile.h"
 #include "model/message_buf.h"
 #include "platform/db.h"
 #include "test_helpers.h"
@@ -189,6 +190,36 @@ TEST(flush_history_tracks_ring_generation_across_clear_and_eviction) {
     db_close(db);
 }
 
+TEST(profile_subscriptions_round_trip_through_json) {
+    Db* db = db_open(":memory:");
+    ASSERT_NOT_NULL(db);
+
+    BrokerProfile prof = {0};
+    strcpy(prof.name, "p");
+    strcpy(prof.host, "h");
+    prof.subscription_count = 3;
+    strcpy(prof.subscriptions[0].topic, "sensors/#");
+    prof.subscriptions[0].qos = 1;
+    strcpy(prof.subscriptions[1].topic, "odd \"quoted\" back\\slash");
+    prof.subscriptions[1].qos = 2;
+    strcpy(prof.subscriptions[2].topic, "$SYS/#");
+    prof.subscriptions[2].qos = 0;
+    ASSERT_TRUE(db_save_profile(db, &prof));
+
+    BrokerProfile loaded[4];
+    int n = db_load_profiles(db, loaded, 4);
+    ASSERT_EQ(n, 1);
+    ASSERT_EQ(loaded[0].subscription_count, 3);
+    ASSERT_STR_EQ(loaded[0].subscriptions[0].topic, "sensors/#");
+    ASSERT_EQ(loaded[0].subscriptions[0].qos, 1);
+    ASSERT_STR_EQ(loaded[0].subscriptions[1].topic, "odd \"quoted\" back\\slash");
+    ASSERT_EQ(loaded[0].subscriptions[1].qos, 2);
+    ASSERT_STR_EQ(loaded[0].subscriptions[2].topic, "$SYS/#");
+    ASSERT_EQ(loaded[0].subscriptions[2].qos, 0);
+
+    db_close(db);
+}
+
 int main(void) {
     printf("test_db_search:\n");
     RUN(finds_message_by_payload_word);
@@ -201,6 +232,7 @@ int main(void) {
     RUN(deleted_messages_are_removed_from_the_index);
     RUN(results_ordered_by_relevance_and_capped_at_max_count);
     RUN(flush_history_tracks_ring_generation_across_clear_and_eviction);
+    RUN(profile_subscriptions_round_trip_through_json);
     printf("all tests passed\n");
     return 0;
 }

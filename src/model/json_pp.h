@@ -10,7 +10,7 @@
 #define JSON_PP_MAX_LINES 2048
 #define JSON_PP_MAX_DEPTH 64
 #define JSON_PP_KEY_LEN 128
-#define JSON_PP_VAL_LEN 200
+#define JSON_PP_VAL_LEN 272 // fits a quoted 256-byte topic with a few escapes
 #define JSON_PP_PATH_LEN 128 // dot path of a leaf, "a.b.0.c"; must match CHART_DOT_PATH_LEN
 
 typedef enum {
@@ -59,6 +59,9 @@ bool json_pp_looks_like_json(const char* src);
 /** @brief Format @p src into pp->lines, replacing whatever was there. Drops the cache mark. */
 void json_pp_run(JsonPP* pp, const char* src);
 
+/** @brief Same for a byte range that is not NUL-terminated (raw MQTT payloads). */
+void json_pp_run_len(JsonPP* pp, const char* src, size_t len);
+
 /**
  * @brief Like json_pp_run(), but a no-op while (@p src, @p key) equal the previous run's.
  *
@@ -70,5 +73,21 @@ bool json_pp_run_cached(JsonPP* pp, const char* src, uint64_t key);
 
 /** @brief Declare pp->lines to be the formatted form of (@p src, @p key) - after restoring them by hand. */
 void json_pp_mark_cached(JsonPP* pp, const char* src, uint64_t key);
+
+/** @brief First line whose dot_path equals @p dot_path ("" = the root value), or NULL. */
+const JsonPPLine* json_pp_find(const JsonPP* pp, const char* dot_path);
+
+/**
+ * @brief Numeric value of a line: a number atom, or a string whose whole contents parse as one.
+ * @return false for brackets, literals like true/null, and non-numeric strings.
+ */
+bool json_pp_line_number(const JsonPPLine* line, double* out);
+
+/**
+ * @brief String value of a line with the quotes removed and \" \\ \/ \n \r \t unescaped (\uXXXX is left as-is).
+ *        Output is truncated to @p cap - 1 bytes and always NUL-terminated.
+ * @return false if the line is not a string.
+ */
+bool json_pp_line_string(const JsonPPLine* line, char* out, size_t cap);
 
 #endif

@@ -64,10 +64,10 @@ test_ssh_tunnel = executable('test_ssh_tunnel',
 test('ssh_tunnel', test_ssh_tunnel)
 
 test_db_search = executable('test_db_search',
-    'test_db_search.c', '../src/platform/db.c', '../src/model/util.c',
+    'test_db_search.c', '../src/platform/db.c', '../src/model/util.c', '../src/model/json_pp.c',
     '../src/model/message_buf.c',
     include_directories : test_inc,
-    dependencies : [sqlite3_dep, cjson_dep]
+    dependencies : [sqlite3_dep]
 )
 test('db_search', test_db_search)
 

@@ -35,7 +35,7 @@ Maintainer: Nikita Smirnov <nktsmirnov@gmail.com>
 Installed-Size: ${INSTALLED_SIZE}
 Section: net
 Priority: optional
-Depends: libc6, libmosquitto1 (>= 2.0), libcjson1 (>= 1.7), libx11-6, libgl1, libxcursor1, libxi6, libxinerama1, libxrandr2
+Depends: libc6, libmosquitto1 (>= 2.0), libx11-6, libgl1, libxcursor1, libxi6, libxinerama1, libxrandr2
 Description: Real-time MQTT topic viewer
  A native MQTT client with a tree-first UI for monitoring and inspecting
  MQTT broker traffic in real time. Features topic filtering, message

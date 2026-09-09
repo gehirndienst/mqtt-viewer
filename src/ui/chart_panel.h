@@ -34,7 +34,7 @@ void chart_panel_draw(AppState* state);
 
 /**
  * @brief Push a sample into every chart series whose @p topic matches.
- *        Walks the JSON payload via cJSON to extract each series's dot path.
+ *        Formats the payload once with json_pp and reads each series's dot path from the lines.
  *        Called from main.c's drain loop just before the message payload
  *        is freed.
  */

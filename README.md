@@ -35,16 +35,16 @@ The code is formatted with [clang-format](https://clang.llvm.org/docs/ClangForma
 
 ## Build
 
-Requires [Meson](https://mesonbuild.com/), Ninja, a C23 compiler, and `libmosquitto` + `libcjson` from your system. Raylib, SQLite, and Clay are fetched automatically as Meson subprojects pinned in [`subprojects/`](subprojects) (`just deps-check` shows pinned vs upstream versions)
+Requires [Meson](https://mesonbuild.com/), Ninja, a C23 compiler, and `libmosquitto` from your system. Raylib, SQLite, and Clay are fetched automatically as Meson subprojects pinned in [`subprojects/`](subprojects) (`just deps-check` shows pinned vs upstream versions)
 
 The C23 compiler requirement is **GCC ≥ 15**, **Clang ≥ 19**, or **Apple Clang ≥ 17** (Xcode 16.3+)
 
 ```bash
 # macOS
-brew install meson ninja mosquitto cjson
+brew install meson ninja mosquitto
 
 # Debian/Ubuntu
-sudo apt install meson ninja-build libmosquitto-dev libcjson-dev
+sudo apt install meson ninja-build libmosquitto-dev
 ```
 
 It is highly recommended to install [just](https://github.com/casey/just) as a dev dependency - the `justfile` wraps all common recipes (a modern makefile alternative), such as:
@@ -82,7 +82,7 @@ Build them manually with `just package --target macos` (.dmg) or `just package -
 
 Packaging must run on the target OS - there is no cross-compilation so far, and the `.deb` step needs `dpkg-deb` while the `.dmg` step needs `dylibbundler`
 
-The packaged binary statically links raylib and SQLite; `libmosquitto` and `libcjson` remain dynamic and must be installed on the target system. The `.deb` package declares them as dependencies, but the `.dmg` package does not (macOS has no s-w package manager)
+The packaged binary statically links raylib and SQLite; `libmosquitto` remains dynamic and must be installed on the target system. The `.deb` package declares it as a dependency, but the `.dmg` package does not (macOS has no s-w package manager)
 
 ## License
 
