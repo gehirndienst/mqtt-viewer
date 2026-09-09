@@ -59,24 +59,21 @@ static bool node_to_double(const cJSON* node, double* out) {
     return false;
 }
 
-static bool extract_double(const uint8_t* json, uint32_t len, const char* dot_path, double* out) {
-    if (!json || len == 0 || !out) return false;
+// Whole payload as a number (no dot path): plain strtod on the first 63 bytes
+static bool extract_scalar(const uint8_t* json, uint32_t len, double* out) {
+    char buf[64];
+    uint32_t n = len < sizeof(buf) - 1 ? len : (uint32_t)(sizeof(buf) - 1);
+    memcpy(buf, json, n);
+    buf[n] = '\0';
+    char* end = NULL;
+    double v = strtod(buf, &end);
+    if (end == buf || !isfinite(v)) return false;
+    *out = v;
+    return true;
+}
 
-    if (!dot_path || dot_path[0] == '\0') {
-        char buf[64];
-        uint32_t n = len < sizeof(buf) - 1 ? len : (uint32_t)(sizeof(buf) - 1);
-        memcpy(buf, json, n);
-        buf[n] = '\0';
-        char* end = NULL;
-        double v = strtod(buf, &end);
-        if (end == buf || !isfinite(v)) return false;
-        *out = v;
-        return true;
-    }
-
-    cJSON* root = cJSON_ParseWithLength((const char*)json, len);
-    if (!root) return false;
-
+// Walk an already-parsed document along "a.b.0.c"
+static bool extract_path(const cJSON* root, const char* dot_path, double* out) {
     const cJSON* node = root;
     const char* p = dot_path;
     char seg[64];
@@ -91,21 +88,14 @@ static bool extract_double(const uint8_t* json, uint32_t len, const char* dot_pa
         } else if (cJSON_IsArray(node)) {
             char* end = NULL;
             long idx = strtol(seg, &end, 10);
-            if (end == seg || idx < 0) {
-                node = NULL;
-                break;
-            }
+            if (end == seg || idx < 0) return false;
             node = cJSON_GetArrayItem(node, (int)idx);
         } else {
-            node = NULL;
-            break;
+            return false;
         }
         p = dot ? dot + 1 : p + slen;
     }
-
-    bool ok = node_to_double(node, out);
-    cJSON_Delete(root);
-    return ok;
+    return node_to_double(node, out);
 }
 
 static int chart_panel_active_at(const AppState* state, int i) {
@@ -367,13 +357,26 @@ void chart_panel_draw(AppState* state) {
 void chart_panel_capture_sample(AppState* state, const char* topic, const uint8_t* payload, uint32_t payload_len,
                                 uint64_t ts_us) {
     if (!payload || payload_len == 0) return;
+
+    // Several series can chart different fields of the same topic - parse the payload once for all of them
+    cJSON* root = NULL;
+    bool parse_tried = false;
     for (int i = 0; i < CHART_MAX_SERIES; i++) {
         ChartSeries* s = &state->chart_series[i];
-        if (!s->active) continue;
-        if (strcmp(s->topic, topic) != 0) continue;
+        if (!s->active || strcmp(s->topic, topic) != 0) continue;
+
         double v;
-        if (extract_double(payload, payload_len, s->dot_path, &v)) {
-            chart_series_push_sample(s, ts_us, v);
+        bool ok;
+        if (s->dot_path[0] == '\0') {
+            ok = extract_scalar(payload, payload_len, &v);
+        } else {
+            if (!parse_tried) {
+                parse_tried = true;
+                root = cJSON_ParseWithLength((const char*)payload, payload_len);
+            }
+            ok = root && extract_path(root, s->dot_path, &v);
         }
+        if (ok) chart_series_push_sample(s, ts_us, v);
     }
+    if (root) cJSON_Delete(root);
 }
