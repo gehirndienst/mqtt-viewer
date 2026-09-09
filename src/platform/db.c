@@ -577,10 +577,10 @@ bool db_trim_messages(Db* db, int max_rows) {
     return true;
 }
 
-void db_flush_history(Db* db, MessageBuf* history, uint64_t pushed, uint64_t* saved) {
+void db_flush_history(Db* db, MessageBuf* history, uint64_t* saved) {
     static MessageRecord batch[256];
 
-    // window_start = monotonic index of the oldest record still in the ring
+    uint64_t pushed = message_buf_generation(history);
     uint64_t window_start = pushed - message_buf_count(history);
     if (*saved < window_start) *saved = window_start;
     if (*saved >= pushed) return;

@@ -28,6 +28,7 @@ typedef struct {
     uint32_t capacity;
     uint32_t head;
     uint32_t count;
+    uint64_t generation; // bumped on every add and clear - lets readers cache views derived from the contents
     pthread_mutex_t mutex;
 } ConnectionLog;
 
@@ -70,6 +71,12 @@ bool connection_log_get(ConnectionLog* log, uint32_t index, LogEntry* out);
  * @return Number of entries currently in the log (≤ capacity).
  */
 uint32_t connection_log_count(ConnectionLog* log);
+
+/**
+ * @brief Change counter (thread-safe): differs from any earlier value whenever the contents changed
+ *        (add, eviction, clear). Compare against a remembered value to skip re-formatting rows.
+ */
+uint64_t connection_log_generation(ConnectionLog* log);
 
 /** @brief Remove all entries from the log (thread-safe). */
 void connection_log_clear(ConnectionLog* log);

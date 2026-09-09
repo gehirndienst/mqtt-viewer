@@ -15,6 +15,7 @@ void connection_log_init(ConnectionLog* log, uint32_t capacity) {
     log->capacity = capacity;
     log->head = 0;
     log->count = 0;
+    log->generation = 0;
     pthread_mutex_init(&log->mutex, NULL);
 }
 
@@ -33,6 +34,7 @@ void connection_log_add(ConnectionLog* log, LogLevel level, const char* message)
     } else {
         log->count++;
     }
+    log->generation++;
     log->entries[idx].timestamp_us = util_now_us();
     log->entries[idx].level = level;
     util_str_copy(log->entries[idx].message, sizeof(log->entries[idx].message), message);
@@ -51,6 +53,13 @@ bool connection_log_get(ConnectionLog* log, uint32_t index, LogEntry* out) {
     return true;
 }
 
+uint64_t connection_log_generation(ConnectionLog* log) {
+    pthread_mutex_lock(&log->mutex);
+    uint64_t g = log->generation;
+    pthread_mutex_unlock(&log->mutex);
+    return g;
+}
+
 uint32_t connection_log_count(ConnectionLog* log) {
     pthread_mutex_lock(&log->mutex);
     uint32_t count = log->count;
@@ -60,6 +69,7 @@ uint32_t connection_log_count(ConnectionLog* log) {
 
 void connection_log_clear(ConnectionLog* log) {
     pthread_mutex_lock(&log->mutex);
+    log->generation++;
     log->head = 0;
     log->count = 0;
     pthread_mutex_unlock(&log->mutex);

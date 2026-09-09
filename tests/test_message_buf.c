@@ -102,6 +102,23 @@ TEST(eviction_and_clear_free_payloads) {
     message_buf_destroy(&buf);
 }
 
+TEST(generation_bumps_on_push_and_clear) {
+    MessageBuf buf;
+    message_buf_init(&buf, 2);
+    uint64_t g0 = message_buf_generation(&buf);
+    MessageRecord rec = {.timestamp_us = 1};
+    message_buf_push(&buf, &rec);
+    uint64_t g1 = message_buf_generation(&buf);
+    ASSERT_TRUE(g1 != g0);
+    message_buf_push(&buf, &rec);
+    message_buf_push(&buf, &rec);
+    uint64_t g3 = message_buf_generation(&buf);
+    ASSERT_TRUE(g3 != g1);
+    message_buf_clear(&buf);
+    ASSERT_TRUE(message_buf_generation(&buf) != g3);
+    message_buf_destroy(&buf);
+}
+
 int main(void) {
     printf("message_buf tests:\n");
     RUN(create_and_destroy);
@@ -111,6 +128,7 @@ int main(void) {
     RUN(payload_copied_on_push);
     RUN(null_and_empty_payload_stored_as_null);
     RUN(eviction_and_clear_free_payloads);
+    RUN(generation_bumps_on_push_and_clear);
     printf("All message_buf tests passed.\n");
     return 0;
 }

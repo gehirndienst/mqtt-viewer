@@ -26,6 +26,7 @@ typedef struct {
     uint32_t capacity;
     uint32_t head; // index of oldest entry
     uint32_t count;
+    uint64_t generation; // bumped on every push and clear - lets readers cache views derived from the contents
 } MessageBuf;
 
 /**
@@ -54,6 +55,12 @@ const MessageRecord* message_buf_get(const MessageBuf* buf, uint32_t index);
 
 /** @brief Number of records currently held (≤ capacity). */
 uint32_t message_buf_count(const MessageBuf* buf);
+
+/**
+ * @brief Change counter: differs from any earlier value whenever the contents changed (push, eviction, clear).
+ *        Compare against a remembered value to skip recomputing something derived from the buffer.
+ */
+uint64_t message_buf_generation(const MessageBuf* buf);
 
 /**
  * @brief Reset count to zero and free all owned payloads; does not free the

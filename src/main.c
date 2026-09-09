@@ -44,10 +44,7 @@ int main(void) {
     AppState state;
     app_state_init(&state);
 
-    // NOTE: history persistence tracks monotonic push counters, not the ring-buffer count - the ring saturates at
-    // capacity (and is cleared on disconnect), so its count can't tell how many records were never written to the DB
-    uint64_t history_pushed = 0; // records ever pushed to state.global_history
-    uint64_t history_saved = 0; // records already written to the DB
+    uint64_t history_saved = 0; // generation of state.global_history already written to the DB
 
     // Database
     char db_path[1280];
@@ -86,10 +83,8 @@ int main(void) {
             message_buf_push(&state.global_history, &hist_records[i]);
             free(hist_records[i].payload);
             hist_records[i].payload = NULL;
-            history_pushed++;
         }
-        // loaded records came FROM the DB - don't write them back
-        history_saved = history_pushed;
+        history_saved = message_buf_generation(&state.global_history);
     }
 
     // MQTT client; a connection is initiated from the profile dialog
@@ -222,7 +217,6 @@ int main(void) {
                 if (m->payload) util_preview_sanitize(rec.preview, sizeof(rec.preview), m->payload, m->payload_len);
                 topic_node_full_path(node, rec.topic, sizeof(rec.topic));
                 message_buf_push(&state.global_history, &rec);
-                history_pushed++;
 
                 // chart sample capture - must happen before m->payload is freed
                 chart_panel_capture_sample(&state, rec.topic, m->payload, m->payload_len, m->timestamp_us);
@@ -281,7 +275,7 @@ int main(void) {
             topic_tree_destroy(&state.topic_tree);
             topic_tree_init(&state.topic_tree, TOPIC_TREE_CAPACITY);
             message_buf_clear(&state.global_history);
-            history_saved = history_pushed; // cleared records are gone - nothing left to save
+            history_saved = message_buf_generation(&state.global_history);
             state.selected_topic = NULL;
             s_tpt_node = NULL;
             s_tpt_acc = 0.0f;
@@ -354,7 +348,7 @@ int main(void) {
         save_timer += dt;
         if (db && save_timer >= 5.0f) {
             save_timer = 0.0f;
-            db_flush_history(db, &state.global_history, history_pushed, &history_saved);
+            db_flush_history(db, &state.global_history, &history_saved);
         }
 
         // build layout
@@ -447,17 +441,6 @@ int main(void) {
                                            "CSV export failed: no writable destination directory");
                     }
                 }
-            }
-
-            // Chart [+] inline buttons next to numeric values in the JSON view. scan for every line index - only the
-            // ones whose Clay element exists this frame have a hit
-            for (int li = 0; li < 2048; li++) {
-                Clay_ElementData ed = Clay_GetElementData(CLAY_IDI("ChartAdd", (uint32_t)li));
-                if (!ed.found) continue;
-                Clay_BoundingBox b = ed.boundingBox;
-                if (!ui_utils_bbox_contains(b, mouse.x, mouse.y)) continue;
-                inspector_chart_add_from_line(&state, li);
-                break;
             }
         }
 
@@ -583,7 +566,7 @@ int main(void) {
         db_set_setting(db, "window_height", buf);
         snprintf(buf, sizeof(buf), "%.4f", state.tree_width_ratio);
         db_set_setting(db, "tree_width_ratio", buf);
-        db_flush_history(db, &state.global_history, history_pushed, &history_saved);
+        db_flush_history(db, &state.global_history, &history_saved);
         db_close(db);
     }
 

@@ -46,12 +46,29 @@ TEST(clear) {
     connection_log_destroy(&log);
 }
 
+TEST(generation_bumps_on_add_and_clear) {
+    ConnectionLog log;
+    connection_log_init(&log, 2);
+    uint64_t g0 = connection_log_generation(&log);
+    connection_log_add(&log, CONN_LOG_INFO, "a");
+    uint64_t g1 = connection_log_generation(&log);
+    ASSERT_TRUE(g1 != g0);
+    connection_log_add(&log, CONN_LOG_INFO, "b");
+    connection_log_add(&log, CONN_LOG_INFO, "c"); // evicts "a", count unchanged
+    uint64_t g3 = connection_log_generation(&log);
+    ASSERT_TRUE(g3 != g1);
+    connection_log_clear(&log);
+    ASSERT_TRUE(connection_log_generation(&log) != g3);
+    connection_log_destroy(&log);
+}
+
 int main(void) {
     printf("connection_log tests:\n");
     RUN(create_and_destroy);
     RUN(add_entry);
     RUN(eviction);
     RUN(clear);
+    RUN(generation_bumps_on_add_and_clear);
     printf("All connection_log tests passed\n");
     return 0;
 }

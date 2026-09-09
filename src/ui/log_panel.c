@@ -22,6 +22,7 @@ static char s_level_bufs[LOG_VISIBLE_ROWS][8];
 static char s_msg_bufs[LOG_VISIBLE_ROWS][260];
 static uint32_t s_row_entry_idx[LOG_VISIBLE_ROWS];
 static uint32_t s_row_count;
+static LogLevel s_row_level[LOG_VISIBLE_ROWS];
 static float s_copied_timer;
 static bool s_dragging; // left button went down on a row and has not been released yet
 static char s_copy_buf[LOG_VISIBLE_ROWS * 300];
@@ -73,10 +74,47 @@ static void log_copy_range(ConnectionLog* log, int lo, int hi) {
     ui_utils_flash_start(&s_copied_timer);
 }
 
+static Clay_Color level_color_for(LogLevel level) {
+    switch (level) {
+        case CONN_LOG_WARN:
+            return THEME_ORANGE;
+        case CONN_LOG_ERROR:
+            return THEME_RED;
+        case CONN_LOG_INFO:
+        default:
+            return THEME_ACCENT_BLUE;
+    }
+}
+
+static void log_rows_refresh(ConnectionLog* log) {
+    static uint64_t s_last_generation = ~0ULL;
+    uint64_t generation = connection_log_generation(log);
+    if (generation == s_last_generation) return;
+    s_last_generation = generation;
+
+    uint32_t count = connection_log_count(log);
+    s_row_count = count < (uint32_t)LOG_VISIBLE_ROWS ? count : (uint32_t)LOG_VISIBLE_ROWS;
+
+    for (uint32_t di = 0; di < s_row_count; di++) {
+        uint32_t entry_idx = count - 1u - di;
+        LogEntry entry;
+        if (!connection_log_get(log, entry_idx, &entry)) {
+            s_row_count = di; // log shrank under us - render what we have
+            break;
+        }
+        s_row_entry_idx[di] = entry_idx;
+        s_row_level[di] = entry.level;
+        util_fmt_hhmmss(entry.timestamp_us, s_log_bufs[di], sizeof(s_log_bufs[di]));
+        // Pad to 4 chars so the messages line up under each other
+        snprintf(s_level_bufs[di], sizeof(s_level_bufs[di]), "%-4s", level_label_for(entry.level));
+        util_str_copy(s_msg_bufs[di], sizeof(s_msg_bufs[di]), entry.message);
+    }
+}
+
 void log_panel_render(AppState* state) {
     if (!state->log_panel_open) return;
 
-    uint32_t count = connection_log_count(&state->conn_log);
+    log_rows_refresh(&state->conn_log);
 
     bool do_clear = false;
     bool do_close = false;
@@ -162,39 +200,11 @@ void log_panel_render(AppState* state) {
                          .childGap = 2,
                      },
              }) {
-            uint32_t display_count = count < (uint32_t)LOG_VISIBLE_ROWS ? count : (uint32_t)LOG_VISIBLE_ROWS;
-            s_row_count = display_count;
-
-            // Iterate newest-first: from count-1 down to count-display_count
-            for (uint32_t di = 0; di < display_count; di++) {
-                uint32_t entry_idx = count - 1u - di;
-
-                LogEntry entry;
-                if (!connection_log_get(&state->conn_log, entry_idx, &entry)) continue;
-
-                s_row_entry_idx[di] = entry_idx;
-                bool row_selected = (sel_lo >= 0 && (int)entry_idx >= sel_lo && (int)entry_idx <= sel_hi);
-
-
-                util_fmt_hhmmss(entry.timestamp_us, s_log_bufs[di], sizeof(s_log_bufs[di]));
-
-                Clay_Color level_color;
-                switch (entry.level) {
-                    case CONN_LOG_WARN:
-                        level_color = THEME_ORANGE;
-                        break;
-                    case CONN_LOG_ERROR:
-                        level_color = THEME_RED;
-                        break;
-                    case CONN_LOG_INFO:
-                    default:
-                        level_color = THEME_ACCENT_BLUE;
-                        break;
-                }
-
-                // Pad to 4 chars so the messages line up under each other
-                snprintf(s_level_bufs[di], sizeof(s_level_bufs[di]), "%-4s", level_label_for(entry.level));
-                snprintf(s_msg_bufs[di], sizeof(s_msg_bufs[di]), "%s", entry.message);
+            // Rows are pre-formatted by log_rows_refresh(); this loop only lays them out
+            for (uint32_t di = 0; di < s_row_count; di++) {
+                int entry_idx = (int)s_row_entry_idx[di];
+                bool row_selected = (sel_lo >= 0 && entry_idx >= sel_lo && entry_idx <= sel_hi);
+                Clay_Color level_color = level_color_for(s_row_level[di]);
 
                 Clay_String ts_cs = ui_utils_clay_string(s_log_bufs[di]);
                 Clay_String level_cs = ui_utils_clay_string(s_level_bufs[di]);

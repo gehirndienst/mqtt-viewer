@@ -85,10 +85,13 @@ bool db_trim_messages(Db* db, int max_rows);
 
 /**
  * @brief Persist message records not yet written from the history ring, then trim the table.
- * @param pushed Monotonic number of records ever pushed into @p history.
- * @param saved  Monotonic number of records already persisted; advanced on return.
+ *
+ * Progress is tracked against message_buf_generation(): @p saved is the generation up to which everything is on
+ * disk. A clear bumps the generation without adding a record, which simply moves the window past it.
+ * @param saved  Generation already persisted; advanced on return. Set it to the current generation to mark the
+ *               ring as fully saved (e.g. after loading history from the DB, or after a clear).
  */
-void db_flush_history(Db* db, MessageBuf* history, uint64_t pushed, uint64_t* saved);
+void db_flush_history(Db* db, MessageBuf* history, uint64_t* saved);
 
 /**
  * @brief Full-text search over all stored messages (topic + payload), ranked by relevance.

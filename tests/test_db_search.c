@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+#include "model/message_buf.h"
 #include "platform/db.h"
 #include "test_helpers.h"
 
@@ -148,6 +149,46 @@ TEST(results_ordered_by_relevance_and_capped_at_max_count) {
     db_close(db);
 }
 
+// Count rows in the messages table via a search-free load (load caps at max_count, so ask for plenty)
+static int saved_rows(Db* db) {
+    static MessageRecord out[64];
+    int n = db_load_messages(db, out, 64);
+    for (int i = 0; i < n; i++) free(out[i].payload);
+    return n;
+}
+
+TEST(flush_history_tracks_ring_generation_across_clear_and_eviction) {
+    Db* db = db_open(":memory:");
+    ASSERT_NOT_NULL(db);
+    MessageBuf ring;
+    message_buf_init(&ring, 4);
+    uint64_t saved = 0;
+
+    MessageRecord a = make_record("t/a", "a");
+    message_buf_push(&ring, &a);
+    message_buf_push(&ring, &a);
+    db_flush_history(db, &ring, &saved);
+    ASSERT_EQ(saved_rows(db), 2);
+
+    db_flush_history(db, &ring, &saved);
+    ASSERT_EQ(saved_rows(db), 2);
+
+    message_buf_clear(&ring);
+    saved = message_buf_generation(&ring);
+    message_buf_push(&ring, &a);
+    db_flush_history(db, &ring, &saved);
+    ASSERT_EQ(saved_rows(db), 3);
+
+    for (int i = 0; i < 6; i++) message_buf_push(&ring, &a);
+    db_flush_history(db, &ring, &saved);
+    ASSERT_EQ(saved_rows(db), 7);
+    db_flush_history(db, &ring, &saved);
+    ASSERT_EQ(saved_rows(db), 7);
+
+    message_buf_destroy(&ring);
+    db_close(db);
+}
+
 int main(void) {
     printf("test_db_search:\n");
     RUN(finds_message_by_payload_word);
@@ -159,6 +200,7 @@ int main(void) {
     RUN(matches_topic_text_too);
     RUN(deleted_messages_are_removed_from_the_index);
     RUN(results_ordered_by_relevance_and_capped_at_max_count);
+    RUN(flush_history_tracks_ring_generation_across_clear_and_eviction);
     printf("all tests passed\n");
     return 0;
 }

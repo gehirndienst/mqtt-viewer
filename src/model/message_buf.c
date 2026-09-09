@@ -12,6 +12,7 @@ void message_buf_init(MessageBuf* buf, uint32_t capacity) {
     buf->capacity = capacity;
     buf->head = 0;
     buf->count = 0;
+    buf->generation = 0;
 }
 
 void message_buf_push(MessageBuf* buf, const MessageRecord* record) {
@@ -22,6 +23,7 @@ void message_buf_push(MessageBuf* buf, const MessageRecord* record) {
     } else {
         buf->count++;
     }
+    buf->generation++;
     buf->entries[idx] = *record;
     if (record->payload != NULL && record->payload_len > 0) {
         buf->entries[idx].payload = alloc_check(malloc(record->payload_len));
@@ -37,6 +39,7 @@ void message_buf_clear(MessageBuf* buf) {
         free(buf->entries[idx].payload);
         buf->entries[idx].payload = NULL;
     }
+    buf->generation++;
     buf->head = 0;
     buf->count = 0;
 }
@@ -53,6 +56,10 @@ const MessageRecord* message_buf_get(const MessageBuf* buf, uint32_t index) {
     }
     uint32_t real_idx = (buf->head + index) % buf->capacity;
     return &buf->entries[real_idx];
+}
+
+uint64_t message_buf_generation(const MessageBuf* buf) {
+    return buf->generation;
 }
 
 uint32_t message_buf_count(const MessageBuf* buf) {
