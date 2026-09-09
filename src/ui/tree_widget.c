@@ -64,36 +64,46 @@ static bool s_last_search_mode = false;
 static char s_search_ts_bufs[SEARCH_MAX_RESULTS][16];
 static char s_search_meta_bufs[SEARCH_MAX_RESULTS][32];
 
-// Returns true if node's full path or any descendant's path contains filter
-static bool node_matches_filter(TopicNode* node, const char* filter) {
-    if (filter[0] == '\0') return true;
+// One pass over the tree marking node->filter_match = "own path or any descendant's path contains filter"
+// (case-insensitive). The path is extended in place on the way down instead of rebuilt per node
+static bool filter_mark(TopicNode* node, const char* filter, char* path, size_t len, size_t cap) {
+    size_t new_len = len;
+    if (new_len > 0 && new_len < cap - 1) path[new_len++] = '/';
+    size_t seg_len = strlen(node->segment);
+    if (seg_len > cap - 1 - new_len) seg_len = cap - 1 - new_len;
+    memcpy(path + new_len, node->segment, seg_len);
+    new_len += seg_len;
+    path[new_len] = '\0';
 
-    char path[512];
-    topic_node_full_path(node, path, sizeof(path));
-
-    char lower_path[512];
-    char lower_filter[256];
-    size_t path_len = strlen(path);
-    size_t filter_len = strlen(filter);
-
-    for (size_t i = 0; i < path_len; i++)
-        lower_path[i] = (char)((path[i] >= 'A' && path[i] <= 'Z') ? path[i] + 32 : path[i]);
-    lower_path[path_len] = '\0';
-
-    for (size_t i = 0; i < filter_len && i < 255; i++)
-        lower_filter[i] = (char)((filter[i] >= 'A' && filter[i] <= 'Z') ? filter[i] + 32 : filter[i]);
-    lower_filter[filter_len] = '\0';
-
-    if (strstr(lower_path, lower_filter)) return true;
-
+    bool match = strcasestr(path, filter) != NULL;
+    // every child must be visited even after a hit, so its own flag is set for render_node
     for (uint32_t i = 0; i < node->child_count; i++) {
-        if (node_matches_filter(node->children[i], filter)) return true;
+        if (filter_mark(node->children[i], filter, path, new_len, cap)) match = true;
     }
-    return false;
+    node->filter_match = match;
+    return match;
 }
 
-static void render_node(AppState* state, TopicNode* node, int depth, uint64_t util_now_us) {
-    if (!node_matches_filter(node, state->topic_filter)) return;
+// Recompute the match flags only when the filter text or the set of nodes changed
+static void filter_refresh(TopicTree* tree, const char* filter) {
+    static char s_last_filter[256];
+    static uint32_t s_last_node_count = ~0u;
+    if (filter[0] == '\0') {
+        s_last_filter[0] = '\0';
+        return;
+    }
+    if (strcmp(filter, s_last_filter) == 0 && tree->total_count == s_last_node_count) return;
+    util_str_copy(s_last_filter, sizeof(s_last_filter), filter);
+    s_last_node_count = tree->total_count;
+
+    char path[512];
+    for (uint32_t i = 0; i < tree->root_count; i++) {
+        filter_mark(tree->roots[i], filter, path, 0, sizeof(path));
+    }
+}
+
+static void render_node(AppState* state, TopicNode* node, int depth, uint64_t now) {
+    if (state->topic_filter[0] != '\0' && !node->filter_match) return;
 
     bool is_selected = (state->selected_topic == node);
     bool has_children = (node->child_count > 0);
@@ -116,15 +126,15 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t ut
 
     // Selected rows keep their own background
     Clay_Color flash_bg = {0};
-    if (!is_selected && util_now_us != 0) {
-        float flash = tree_flash_alpha(util_now_us, node->last_message_ts);
+    if (!is_selected && now != 0) {
+        float flash = tree_flash_alpha(now, node->last_message_ts);
         if (flash > 0.0f) {
             flash_bg = THEME_BG_FLASH;
             flash_bg.a = flash * 255.0f;
         } else {
             // Nothing on this topic itself - show a calmer trace of traffic further down the subtree
             flash_bg = THEME_BG_FLASH_SUBTREE;
-            flash_bg.a = tree_subtree_flash_alpha(util_now_us, node->last_subtree_message_ts) * 255.0f;
+            flash_bg.a = tree_subtree_flash_alpha(now, node->last_subtree_message_ts) * 255.0f;
         }
     }
 
@@ -304,7 +314,7 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t ut
 
     if (has_children && node->expanded) {
         for (uint32_t i = 0; i < node->child_count; i++) {
-            render_node(state, node->children[i], depth + 1, util_now_us);
+            render_node(state, node->children[i], depth + 1, now);
         }
     }
 }
@@ -658,6 +668,7 @@ void tree_widget_render(AppState* state, Db* db) {
             }
             bool suppress_flash = (now - s_flash_selection_changed_us) < TREE_FLASH_SELECTION_GRACE_US;
 
+            filter_refresh(tree, state->topic_filter);
             for (uint32_t i = 0; i < tree->root_count; i++) {
                 render_node(state, tree->roots[i], 0, suppress_flash ? 0 : now);
             }

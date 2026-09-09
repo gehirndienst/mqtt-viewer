@@ -20,6 +20,7 @@ typedef struct TopicNode {
     uint32_t subtree_message_count;
     bool has_retained;
     bool expanded; // UI state: tree node expanded
+    bool filter_match; // UI state: this node or a descendant matches the current topic filter
     uint64_t last_message_ts; // microseconds
     uint64_t last_subtree_message_ts; // microseconds; last message anywhere in this node's subtree
     uint32_t last_payload_len; // bytes
