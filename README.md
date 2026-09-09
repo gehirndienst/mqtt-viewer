@@ -52,14 +52,17 @@ It is highly recommended to install [just](https://github.com/casey/just) as a d
 ```bash
 just build                # debugoptimized build (default); also --debug / --release
 just run                  # build + run; also --debug / --release
-just test                 # run all unit tests
-just dbgr                 # run the debug build under debugger (requires lldb/gdb installed)
+just tests                # run all unit tests
+just test <name>          # run a single test suite, e.g. just test spsc_queue
+just dbgr                 # run the debug build under a debugger (requires lldb/gdb installed)
 just docs                 # generate Doxygen API docs (requires doxygen)
+just release --version X  # bump meson.build version, commit and tag vX; --push pushes right away
 just package              # build a release package; --target macos (.dmg) / linux (.deb)
 just testenv              # local test broker + sample traffic + app; --only-env to skip the app
 just testenv-stop         # stop the test broker/publisher and delete the test db
 just deps-check           # show pinned dependency versions vs upstream
 just deps-bump            # update sqlite3 from wrapdb; --auto also re-pins raylib/clay and rebuilds
+just deps-download        # prefetch wrap sources into subprojects/packagecache/ (for offline builds)
 just clean                # remove all build artefacts and tear down the test environment
 ```
 

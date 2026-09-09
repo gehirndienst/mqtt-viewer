@@ -3,7 +3,7 @@
 # Author: Nikita Smirnov <nktsmirnov@gmail.com> - https://github.com/gehirndienst
 
 _default:
-    @just --list
+    @just --list --unsorted
 
 _compile dir *setup_args:
     #!/usr/bin/env bash
@@ -36,10 +36,6 @@ build dbg='' rel='':
         just _compile builddir --buildtype=debugoptimized
     fi
 
-# Run all tests (uses the default build)
-test:
-    meson test -C builddir -v
-
 # Run the built executable (debug or release if specified, otherwise default build)
 [arg("dbg", long="debug", value="debug")]
 [arg("rel", long="release", value="release")]
@@ -58,23 +54,13 @@ run dbg='' rel='':
         ./builddir/mqtt-viewer
     fi
 
-# Run a single test suite by name (e.g. just test-one spsc_queue)
-test-one name:
+# Run all tests (uses the default build)
+tests:
+    meson test -C builddir -v
+
+# Run a single test suite by name (e.g. just test spsc_queue)
+test name:
     meson test -C builddir -v --suite mqtt-viewer:{{name}}
-
-# Generate API docs from header Doxygen comments (requires doxygen)
-docs:
-    doxygen Doxyfile
-    @echo "Docs written to docs/doxygen/html/index.html"
-
-# Remove all build artefacts and tear down the test environment
-clean:
-    just testenv-stop
-    rm -rf builddir builddir-debug builddir-release builddir-release-static packaging/staging
-
-# Download wrap dependencies into subprojects/packagecache/ (requires network)
-download-deps:
-    meson subprojects download --sourcedir .
 
 # Run the debug build under a debugger (lldb on macOS, gdb on Linux)
 dbgr:
@@ -89,6 +75,11 @@ dbgr:
         echo "No debugger found. Install lldb (macOS) or gdb (Linux)." >&2
         exit 1
     fi
+
+# Generate API docs from header Doxygen comments (requires doxygen)
+docs:
+    doxygen Doxyfile
+    @echo "Docs written to docs/doxygen/html/index.html"
 
 # Bump version, commit, and tag. Pass --push to push immediately.
 [arg("version", long="version")]
@@ -211,3 +202,12 @@ deps-check:
 [arg("auto", long="auto", value="--auto")]
 deps-bump auto='':
     @python3 scripts/deps.py bump {{auto}}
+
+# Download wrap dependencies into subprojects/packagecache/
+deps-download:
+    meson subprojects download --sourcedir .
+
+# Remove all build artefacts and tear down the test environment
+clean:
+    just testenv-stop
+    rm -rf builddir builddir-debug builddir-release builddir-release-static packaging/staging

@@ -116,7 +116,7 @@ def bump(auto: bool) -> None:
         print("re-pin raylib/clay automatically with: just deps-bump --auto")
         print("or by hand: edit subprojects/raylib.wrap + subprojects/clay.wrap,")
         print(
-            "then rm -rf subprojects/raylib-* subprojects/clay && just build && just test"
+            "then rm -rf subprojects/raylib-* subprojects/clay && just build && just tests"
         )
         return
     if bump_raylib() | bump_clay():
