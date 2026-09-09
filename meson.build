@@ -41,6 +41,7 @@ src_model = files(
     'src/model/chart_series.c',
     'src/model/csv_export.c',
     'src/model/util.c',
+    'src/model/json_pp.c',
 )
 
 src_core = files(

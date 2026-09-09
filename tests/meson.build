@@ -70,3 +70,9 @@ test_db_search = executable('test_db_search',
     dependencies : [sqlite3_dep, cjson_dep]
 )
 test('db_search', test_db_search)
+
+test_json_pp = executable('test_json_pp',
+    'test_json_pp.c', '../src/model/json_pp.c', '../src/model/util.c',
+    include_directories : test_inc
+)
+test('json_pp', test_json_pp)

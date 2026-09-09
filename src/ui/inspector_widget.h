@@ -23,14 +23,4 @@ typedef enum {
  */
 void inspector_widget_render(AppState* state);
 
-/**
- * @brief Activate a chart series for the numeric value at line @p line_idx
- *        of the inspector's current pretty-printer output.
- *
- * Called by main.c when the user clicks the inline `+` button next to a
- * numeric leaf in the JSON view. Idempotent - no-op if (topic, dot_path)
- * already has an active series. No-op if the line is not numeric.
- */
-void inspector_chart_add_from_line(AppState* state, int line_idx);
-
 #endif

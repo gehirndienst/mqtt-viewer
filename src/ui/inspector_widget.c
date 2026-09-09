@@ -11,6 +11,7 @@
 #include "clay.h"
 #include "raylib.h"
 
+#include "model/json_pp.h"
 #include "model/message_buf.h"
 #include "model/util.h"
 #include "ui/inspector_widget.h"
@@ -20,11 +21,7 @@
 #define DIFF_MAX_LINES 256
 #define DIFF_LINE_LEN 192
 #define HISTORY_MAX_ROWS 200
-#define JSON_PP_MAX_LINES 2048
-#define JSON_PP_MAX_DEPTH 64
 #define JSON_INDENT_STEP 16
-#define JSON_PP_KEY_LEN 128
-#define JSON_PP_VAL_LEN 200
 #define PP_GUTTER_W 18
 
 typedef enum {
@@ -34,31 +31,15 @@ typedef enum {
 } DiffState;
 
 typedef struct {
-    int depth;
-    char key[JSON_PP_KEY_LEN];
-    char sep[4]; // ": " or ""
-    char val[JSON_PP_VAL_LEN];
-    char trail[4]; // "," or ""
-    Clay_Color key_color;
-    Clay_Color val_color;
-    char dot_path[CHART_DOT_PATH_LEN]; // path of this line's leaf for chart-add ("" = root)
-    bool is_numeric;
-} JsonPPLine;
-
-typedef struct {
-    int curr_idx; // index into s_pp_lines (-1 for REMOVED-only entries)
+    int curr_idx; // index into s_pp.lines (-1 for REMOVED-only entries)
     int prev_idx; // index into s_diff_prev_text (-1 unless REMOVED or UNCHANGED)
     DiffState state;
 } DiffMergedEntry;
 
-static JsonPPLine s_pp_lines[JSON_PP_MAX_LINES];
-static int s_pp_line_count;
-static const char* s_pp_src;
-static int s_pp_src_len;
-static int s_pp_pos;
-static int s_pp_depth;
-static char s_pp_path[CHART_DOT_PATH_LEN];
-static size_t s_pp_path_len;
+
+// Pretty-printer
+static JsonPP s_pp;
+static JsonPP s_pp_prev;
 
 // action button flash
 
@@ -79,9 +60,6 @@ static DiffMergedEntry s_diff_merged[DIFF_MAX_LINES * 2];
 static int s_diff_merged_count = 0;
 static int s_diff_dp[DIFF_MAX_LINES + 1][DIFF_MAX_LINES + 1];
 
-// temporary buffer to swap s_pp_lines while we re-pp the previous preview without losing the current frame's pp output
-static JsonPPLine s_diff_pp_swap[JSON_PP_MAX_LINES];
-
 // history view
 static char s_hist_time_bufs[HISTORY_MAX_ROWS][16];
 static char s_hist_meta_bufs[HISTORY_MAX_ROWS][32];
@@ -90,9 +68,6 @@ static uint64_t s_hist_copied_ts = 0;
 static float s_hist_copied_timer = 0.0f;
 static uint64_t s_hist_expanded_ts = 0;
 static TopicNode* s_last_hist_node = NULL;
-
-// mutual recursion between pp_format_* functions
-static void pp_format_value(const char* key, Clay_Color key_color);
 
 static void render_text_view(const char* src) {
     if (src[0] == '\0') {
@@ -169,202 +144,13 @@ static void build_hex_dump_str(const char* src, int len, char* out, int out_size
     out[pos] = '\0';
 }
 
-static void pp_skip_ws(void) {
-    while (s_pp_pos < s_pp_src_len &&
-           (s_pp_src[s_pp_pos] == ' ' || s_pp_src[s_pp_pos] == '\t' || s_pp_src[s_pp_pos] == '\n' ||
-            s_pp_src[s_pp_pos] == '\r'))
-        s_pp_pos++;
-}
-
-static void pp_scan_string(char* buf, int buf_size) {
-    int start = s_pp_pos;
-    s_pp_pos++;
-    while (s_pp_pos < s_pp_src_len) {
-        if (s_pp_src[s_pp_pos] == '\\' && s_pp_pos + 1 < s_pp_src_len) {
-            s_pp_pos += 2;
-            continue;
-        }
-        if (s_pp_src[s_pp_pos] == '"') {
-            s_pp_pos++;
-            break;
-        }
-        s_pp_pos++;
-    }
-    int copy_len = s_pp_pos - start;
-    if (copy_len > buf_size - 1) copy_len = buf_size - 1;
-    memcpy(buf, s_pp_src + start, (size_t)copy_len);
-    buf[copy_len] = '\0';
-}
-
-static void pp_scan_atom(char* buf, int buf_size) {
-    int start = s_pp_pos;
-    while (s_pp_pos < s_pp_src_len) {
-        char c = s_pp_src[s_pp_pos];
-        if (c == ',' || c == '}' || c == ']' || c == '{' || c == '[' || c == ' ' || c == '\t' || c == '\n' || c == '\r')
-            break;
-        s_pp_pos++;
-    }
-    int copy_len = s_pp_pos - start;
-    if (copy_len > buf_size - 1) copy_len = buf_size - 1;
-    memcpy(buf, s_pp_src + start, (size_t)copy_len);
-    buf[copy_len] = '\0';
-}
-
-static size_t pp_path_push(const char* seg) {
-    size_t mark = s_pp_path_len;
-    if (!seg || !seg[0]) return mark;
-    size_t need_dot = (s_pp_path_len > 0) ? 1 : 0;
-    size_t seg_len = strlen(seg);
-    if (s_pp_path_len + need_dot + seg_len + 1 > sizeof(s_pp_path)) return mark;
-    if (need_dot) s_pp_path[s_pp_path_len++] = '.';
-    memcpy(s_pp_path + s_pp_path_len, seg, seg_len);
-    s_pp_path_len += seg_len;
-    s_pp_path[s_pp_path_len] = '\0';
-    return mark;
-}
-
-static void pp_path_pop(size_t mark) {
-    s_pp_path_len = mark;
-    s_pp_path[s_pp_path_len] = '\0';
-}
-
-static void pp_emit_line(const char* key, Clay_Color key_color, const char* sep, const char* val, Clay_Color val_color,
-                         bool is_numeric) {
-    if (s_pp_line_count >= JSON_PP_MAX_LINES) return;
-    JsonPPLine* line = &s_pp_lines[s_pp_line_count++];
-    line->depth = s_pp_depth;
-    util_str_copy(line->key, JSON_PP_KEY_LEN, key);
-    util_str_copy(line->sep, sizeof(line->sep), sep);
-    util_str_copy(line->val, JSON_PP_VAL_LEN, val);
-    line->trail[0] = '\0';
-    line->key_color = key_color;
-    line->val_color = val_color;
-    line->is_numeric = is_numeric;
-    size_t plen = s_pp_path_len < sizeof(line->dot_path) - 1 ? s_pp_path_len : sizeof(line->dot_path) - 1;
-    memcpy(line->dot_path, s_pp_path, plen);
-    line->dot_path[plen] = '\0';
-}
-
-static void pp_format_object_contents(void) {
-    pp_skip_ws();
-    while (s_pp_pos < s_pp_src_len && s_pp_src[s_pp_pos] != '}' && s_pp_line_count < JSON_PP_MAX_LINES) {
-        pp_skip_ws();
-        if (s_pp_pos >= s_pp_src_len || s_pp_src[s_pp_pos] == '}') break;
-
-        char key[JSON_PP_KEY_LEN] = "";
-        if (s_pp_src[s_pp_pos] == '"') pp_scan_string(key, sizeof(key));
-        pp_skip_ws();
-        if (s_pp_pos < s_pp_src_len && s_pp_src[s_pp_pos] == ':') s_pp_pos++;
-        pp_skip_ws();
-
-        // pp_scan_string keeps the surrounding quotes; strip them for the path
-        size_t klen = strlen(key);
-        if (klen >= 2 && key[0] == '"' && key[klen - 1] == '"') {
-            memmove(key, key + 1, klen - 2);
-            key[klen - 2] = '\0';
-        }
-
-        size_t mark = pp_path_push(key);
-        int pos_before = s_pp_pos;
-        pp_format_value(key, THEME_LIGHT_BLUE);
-        // Skip one char on malformed JSON to prevent an infinite loop
-        if (s_pp_pos == pos_before) s_pp_pos++;
-        pp_path_pop(mark);
-        pp_skip_ws();
-
-        if (s_pp_pos < s_pp_src_len && s_pp_src[s_pp_pos] == ',') {
-            s_pp_pos++;
-            if (s_pp_line_count > 0)
-                util_str_copy(s_pp_lines[s_pp_line_count - 1].trail, sizeof(s_pp_lines[0].trail), ",");
-        }
-        pp_skip_ws();
-    }
-    if (s_pp_pos < s_pp_src_len && s_pp_src[s_pp_pos] == '}') s_pp_pos++;
-}
-
-static void pp_format_array_contents(void) {
-    pp_skip_ws();
-    int idx = 0;
-    while (s_pp_pos < s_pp_src_len && s_pp_src[s_pp_pos] != ']' && s_pp_line_count < JSON_PP_MAX_LINES) {
-        pp_skip_ws();
-        if (s_pp_pos >= s_pp_src_len || s_pp_src[s_pp_pos] == ']') break;
-
-        char idx_buf[16];
-        snprintf(idx_buf, sizeof(idx_buf), "%d", idx);
-        size_t mark = pp_path_push(idx_buf);
-        int pos_before = s_pp_pos;
-        pp_format_value("", THEME_TEXT_MUTED);
-        if (s_pp_pos == pos_before) s_pp_pos++;
-        pp_path_pop(mark);
-        idx++;
-        pp_skip_ws();
-
-        if (s_pp_pos < s_pp_src_len && s_pp_src[s_pp_pos] == ',') {
-            s_pp_pos++;
-            if (s_pp_line_count > 0)
-                util_str_copy(s_pp_lines[s_pp_line_count - 1].trail, sizeof(s_pp_lines[0].trail), ",");
-        }
-        pp_skip_ws();
-    }
-    if (s_pp_pos < s_pp_src_len && s_pp_src[s_pp_pos] == ']') s_pp_pos++;
-}
-
-static void pp_format_value(const char* key, Clay_Color key_color) {
-    pp_skip_ws();
-    if (s_pp_pos >= s_pp_src_len || s_pp_line_count >= JSON_PP_MAX_LINES) return;
-    if (s_pp_depth >= JSON_PP_MAX_DEPTH) return;
-
-    char c = s_pp_src[s_pp_pos];
-    if (c == '{') {
-        pp_emit_line(key, key_color, key[0] ? ": " : "", "{", THEME_TEXT_MUTED, false);
-        s_pp_pos++;
-        s_pp_depth++;
-        pp_format_object_contents();
-        s_pp_depth--;
-        pp_emit_line("", THEME_TEXT_MUTED, "", "}", THEME_TEXT_MUTED, false);
-    } else if (c == '[') {
-        pp_emit_line(key, key_color, key[0] ? ": " : "", "[", THEME_TEXT_MUTED, false);
-        s_pp_pos++;
-        s_pp_depth++;
-        pp_format_array_contents();
-        s_pp_depth--;
-        pp_emit_line("", THEME_TEXT_MUTED, "", "]", THEME_TEXT_MUTED, false);
-    } else if (c == '"') {
-        char val[JSON_PP_VAL_LEN] = "";
-        pp_scan_string(val, sizeof(val));
-        // Strings that *look* like numbers
-        bool is_num_str = false;
-        size_t vlen = strlen(val);
-        if (vlen >= 2 && val[0] == '"' && val[vlen - 1] == '"') {
-            char inner[JSON_PP_VAL_LEN];
-            size_t ilen = vlen - 2;
-            if (ilen >= sizeof(inner)) ilen = sizeof(inner) - 1;
-            memcpy(inner, val + 1, ilen);
-            inner[ilen] = '\0';
-            char* endp = NULL;
-            double dv = strtod(inner, &endp);
-            is_num_str = (endp != inner) && (*endp == '\0') && isfinite(dv);
-            (void)dv;
-        }
-        pp_emit_line(key, key_color, key[0] ? ": " : "", val, THEME_GREEN, is_num_str);
-    } else {
-        char val[JSON_PP_VAL_LEN] = "";
-        pp_scan_atom(val, sizeof(val));
-        // Detect numeric atoms
-        char* endp = NULL;
-        double dv = strtod(val, &endp);
-        bool is_num = (endp != val) && isfinite(dv);
-        (void)dv;
-        pp_emit_line(key, key_color, key[0] ? ": " : "", val, THEME_PINK, is_num);
-    }
-}
-
 static char s_inspector_topic[CHART_TOPIC_LEN]; // updated each frame from selected_topic
 
-void inspector_chart_add_from_line(AppState* state, int line_idx) {
-    if (line_idx < 0 || line_idx >= s_pp_line_count) return;
+// Start charting the numeric value on pretty-printed line
+static void chart_add_from_line(AppState* state, int line_idx) {
+    if (line_idx < 0 || line_idx >= s_pp.line_count) return;
     if (s_inspector_topic[0] == '\0') return;
-    const JsonPPLine* line = &s_pp_lines[line_idx];
+    const JsonPPLine* line = &s_pp.lines[line_idx];
     if (!line->is_numeric) return;
     // skip if (topic, dot_path) already active
     for (int i = 0; i < CHART_MAX_SERIES; i++) {
@@ -431,12 +217,24 @@ static void diff_compute(int prev_n, int curr_n, const int* curr_depth) {
     for (int k = 0; k < tc; k++) s_diff_merged[k] = tmp[tc - 1 - k];
 }
 
+static Clay_Color pp_val_color(JsonPPValKind kind) {
+    switch (kind) {
+        case JSON_PP_VAL_STRING:
+            return THEME_GREEN;
+        case JSON_PP_VAL_ATOM:
+            return THEME_PINK;
+        case JSON_PP_VAL_PUNCT:
+        default:
+            return THEME_TEXT_MUTED;
+    }
+}
+
 static void render_pp_line(const JsonPPLine* line, int line_idx, DiffState st) {
     uint16_t left_pad = (uint16_t)(line->depth * JSON_INDENT_STEP);
 
-    Clay_Color key_c = (st == DIFF_ADDED) ? THEME_DIFF_ADDED : line->key_color;
+    Clay_Color key_c = (st == DIFF_ADDED) ? THEME_DIFF_ADDED : THEME_LIGHT_BLUE;
     Clay_Color sep_c = (st == DIFF_ADDED) ? THEME_DIFF_ADDED : THEME_TEXT_MUTED;
-    Clay_Color val_c = (st == DIFF_ADDED) ? THEME_DIFF_ADDED : line->val_color;
+    Clay_Color val_c = (st == DIFF_ADDED) ? THEME_DIFF_ADDED : pp_val_color(line->val_kind);
     Clay_Color trail_c = (st == DIFF_ADDED) ? THEME_DIFF_ADDED : THEME_TEXT_MUTED;
     Clay_Color content_bg = (st == DIFF_ADDED) ? THEME_DIFF_BG_ADDED : (Clay_Color){0};
 
@@ -537,38 +335,20 @@ static void render_pp_removed(int merged_idx, int prev_idx) {
     }
 }
 
-static bool payload_is_numeric_scalar(const char* src) {
-    const char* p = src;
-    while (*p == ' ') p++;
-    if (*p == '+' || *p == '-') p++;
-    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) return false;
-    char* end = NULL;
-    double v = strtod(src, &end);
-    if (end == src) return false;
-    while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
-    return *end == '\0' && isfinite(v);
-}
-
 static void render_json_diff_view(TopicNode* node) {
     const char* src = node->last_payload_preview;
     if (src[0] == '\0') {
         CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
         return;
     }
-    if (src[0] != '{' && src[0] != '[' && src[0] != '"' && !payload_is_numeric_scalar(src)) {
+    if (!json_pp_looks_like_json(src)) {
         // Diff is JSON-only by design - fallback to plain text view for non-JSON payloads
         render_text_view(src);
         return;
     }
 
-    s_pp_src = src;
-    s_pp_src_len = (int)strlen(src);
-    s_pp_pos = 0;
-    s_pp_path_len = 0;
-    s_pp_depth = 0;
-    s_pp_line_count = 0;
-    pp_format_value("", THEME_TEXT_MUTED);
-    if (s_pp_line_count == 0) {
+    json_pp_run_cached(&s_pp, src, node->last_display_update_us);
+    if (s_pp.line_count == 0) {
         render_text_view(src);
         return;
     }
@@ -587,31 +367,21 @@ static void render_json_diff_view(TopicNode* node) {
         s_diff_merged_count = 0;
         s_diff_prev_text_count = 0;
     } else if (ts_advanced) {
-        int curr_n = s_pp_line_count > DIFF_MAX_LINES ? DIFF_MAX_LINES : s_pp_line_count;
+        int curr_n = s_pp.line_count > DIFF_MAX_LINES ? DIFF_MAX_LINES : s_pp.line_count;
         static int curr_depth[DIFF_MAX_LINES];
         for (int i = 0; i < curr_n; i++) {
-            diff_format_line(&s_pp_lines[i], s_diff_curr_text[i]);
-            curr_depth[i] = s_pp_lines[i].depth;
+            diff_format_line(&s_pp.lines[i], s_diff_curr_text[i]);
+            curr_depth[i] = s_pp.lines[i].depth;
         }
 
-        // Save current pretty-printer output, run PP on prev preview, capture its lines, then restore
-        int saved_count = s_pp_line_count;
-        memcpy(s_diff_pp_swap, s_pp_lines, (size_t)saved_count * sizeof(JsonPPLine));
-        s_pp_src = s_diff_prev_preview;
-        s_pp_src_len = (int)strlen(s_diff_prev_preview);
-        s_pp_pos = 0;
-        s_pp_path_len = 0;
-        s_pp_depth = 0;
-        s_pp_line_count = 0;
-        pp_format_value("", THEME_TEXT_MUTED);
-        int prev_n = s_pp_line_count > DIFF_MAX_LINES ? DIFF_MAX_LINES : s_pp_line_count;
+        // Format the previous payload into its own instance so the current lines stay put
+        json_pp_run(&s_pp_prev, s_diff_prev_preview);
+        int prev_n = s_pp_prev.line_count > DIFF_MAX_LINES ? DIFF_MAX_LINES : s_pp_prev.line_count;
         for (int i = 0; i < prev_n; i++) {
-            diff_format_line(&s_pp_lines[i], s_diff_prev_text[i]);
-            s_diff_prev_text_depth[i] = s_pp_lines[i].depth;
+            diff_format_line(&s_pp_prev.lines[i], s_diff_prev_text[i]);
+            s_diff_prev_text_depth[i] = s_pp_prev.lines[i].depth;
         }
         s_diff_prev_text_count = prev_n;
-        memcpy(s_pp_lines, s_diff_pp_swap, (size_t)saved_count * sizeof(JsonPPLine));
-        s_pp_line_count = saved_count;
 
         diff_compute(prev_n, curr_n, curr_depth);
 
@@ -626,8 +396,8 @@ static void render_json_diff_view(TopicNode* node) {
 
     // rndr
     if (s_diff_merged_count == 0) {
-        for (int li = 0; li < s_pp_line_count; li++) {
-            render_pp_line(&s_pp_lines[li], li, DIFF_UNCHANGED);
+        for (int li = 0; li < s_pp.line_count; li++) {
+            render_pp_line(&s_pp.lines[li], li, DIFF_UNCHANGED);
         }
     } else {
         for (int k = 0; k < s_diff_merged_count; k++) {
@@ -635,45 +405,39 @@ static void render_json_diff_view(TopicNode* node) {
             if (e->state == DIFF_REMOVED) {
                 render_pp_removed(k, e->prev_idx);
             } else {
-                render_pp_line(&s_pp_lines[e->curr_idx], e->curr_idx, e->state);
+                render_pp_line(&s_pp.lines[e->curr_idx], e->curr_idx, e->state);
             }
         }
-        for (int li = DIFF_MAX_LINES; li < s_pp_line_count; li++) {
-            render_pp_line(&s_pp_lines[li], li, DIFF_UNCHANGED);
+        for (int li = DIFF_MAX_LINES; li < s_pp.line_count; li++) {
+            render_pp_line(&s_pp.lines[li], li, DIFF_UNCHANGED);
         }
     }
-    if (s_pp_line_count >= JSON_PP_MAX_LINES) {
+    if (s_pp.line_count >= JSON_PP_MAX_LINES) {
         CLAY_TEXT(CLAY_STRING("(output truncated at 2048 lines)"), THEME_TEXT_SMALL);
     }
 }
 
-static void render_json_view(const char* src) {
+static void render_json_view(const char* src, uint64_t key) {
     if (src[0] == '\0') {
         CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
         return;
     }
-    if (src[0] != '{' && src[0] != '[' && src[0] != '"' && !payload_is_numeric_scalar(src)) {
+    if (!json_pp_looks_like_json(src)) {
         render_text_view(src);
         return;
     }
 
-    s_pp_src = src;
-    s_pp_src_len = (int)strlen(src);
-    s_pp_pos = 0;
-    s_pp_path_len = 0;
-    s_pp_depth = 0;
-    s_pp_line_count = 0;
-    pp_format_value("", THEME_TEXT_MUTED);
+    json_pp_run_cached(&s_pp, src, key);
 
-    if (s_pp_line_count == 0) {
+    if (s_pp.line_count == 0) {
         render_text_view(src);
         return;
     }
 
-    for (int li = 0; li < s_pp_line_count; li++) {
-        render_pp_line(&s_pp_lines[li], li, DIFF_UNCHANGED);
+    for (int li = 0; li < s_pp.line_count; li++) {
+        render_pp_line(&s_pp.lines[li], li, DIFF_UNCHANGED);
     }
-    if (s_pp_line_count >= JSON_PP_MAX_LINES) {
+    if (s_pp.line_count >= JSON_PP_MAX_LINES) {
         CLAY_TEXT(CLAY_STRING("(output truncated at 2048 lines)"), THEME_TEXT_SMALL);
     }
 }
@@ -698,10 +462,18 @@ static void render_history_view(AppState* state, TopicNode* node) {
     }
 
     static uint32_t matches[HISTORY_MAX_ROWS];
-    int match_count = 0;
-    for (int i = (int)total - 1; i >= 0 && match_count < HISTORY_MAX_ROWS; i--) {
-        const MessageRecord* r = message_buf_get(&state->global_history, (uint32_t)i);
-        if (r && strcmp(r->topic, hist_path) == 0) matches[match_count++] = (uint32_t)i;
+    static int match_count = 0;
+    static const TopicNode* s_match_node = NULL;
+    static uint64_t s_match_generation = ~0ULL;
+    uint64_t generation = message_buf_generation(&state->global_history);
+    if (node != s_match_node || generation != s_match_generation) {
+        s_match_node = node;
+        s_match_generation = generation;
+        match_count = 0;
+        for (int i = (int)total - 1; i >= 0 && match_count < HISTORY_MAX_ROWS; i--) {
+            const MessageRecord* r = message_buf_get(&state->global_history, (uint32_t)i);
+            if (r && strcmp(r->topic, hist_path) == 0) matches[match_count++] = (uint32_t)i;
+        }
     }
 
     if (match_count == 0) {
@@ -801,17 +573,9 @@ static void render_history_view(AppState* state, TopicNode* node) {
                          .backgroundColor = THEME_BG_HISTORY_DETAIL,
                      }) {
                     const char* src = r->preview;
-                    bool is_json = (src[0] == '{' || src[0] == '[' || src[0] == '"');
-                    if (is_json) {
-                        s_pp_src = src;
-                        s_pp_src_len = (int)strlen(src);
-                        s_pp_pos = 0;
-                        s_pp_path_len = 0;
-                        s_pp_depth = 0;
-                        s_pp_line_count = 0;
-                        pp_format_value("", THEME_TEXT_MUTED);
-                    }
-                    if (!is_json || s_pp_line_count == 0) {
+                    bool is_json = json_pp_looks_like_json(src);
+                    if (is_json) json_pp_run_cached(&s_pp, src, r->timestamp_us);
+                    if (!is_json || s_pp.line_count == 0) {
                         int raw_len = (int)strlen(src);
                         if (raw_len > 4000) raw_len = 4000;
                         Clay_String raw_cs = {.length = raw_len, .chars = src};
@@ -822,8 +586,8 @@ static void render_history_view(AppState* state, TopicNode* node) {
                                       .textColor = THEME_TEXT_SECONDARY,
                                   }));
                     } else {
-                        for (int li = 0; li < s_pp_line_count; li++) {
-                            JsonPPLine* line = &s_pp_lines[li];
+                        for (int li = 0; li < s_pp.line_count; li++) {
+                            JsonPPLine* line = &s_pp.lines[li];
                             uint16_t left_pad = (uint16_t)(line->depth * JSON_INDENT_STEP + 6);
                             CLAY(CLAY_IDI("EPP", (uint32_t)li),
                                  {
@@ -841,7 +605,7 @@ static void render_history_view(AppState* state, TopicNode* node) {
                                               CLAY_TEXT_CONFIG({
                                                   .fontSize = 12,
                                                   .fontId = FONT_MONO,
-                                                  .textColor = line->key_color,
+                                                  .textColor = THEME_LIGHT_BLUE,
                                                   .wrapMode = CLAY_TEXT_WRAP_NONE,
                                               }));
                                 }
@@ -861,7 +625,7 @@ static void render_history_view(AppState* state, TopicNode* node) {
                                               CLAY_TEXT_CONFIG({
                                                   .fontSize = 12,
                                                   .fontId = FONT_MONO,
-                                                  .textColor = line->val_color,
+                                                  .textColor = pp_val_color(line->val_kind),
                                                   .wrapMode = CLAY_TEXT_WRAP_NONE,
                                               }));
                                 }
@@ -877,7 +641,7 @@ static void render_history_view(AppState* state, TopicNode* node) {
                                 }
                             }
                         }
-                        if (s_pp_line_count >= JSON_PP_MAX_LINES) {
+                        if (s_pp.line_count >= JSON_PP_MAX_LINES) {
                             CLAY_TEXT(CLAY_STRING("(truncated at 2048 lines)"), THEME_TEXT_SMALL);
                         }
                     }
@@ -1046,7 +810,7 @@ static void render_frozen_inspector(AppState* state) {
              }) {
             switch (state->inspector_view) {
                 case VIEW_JSON:
-                    render_json_view(state->frozen_message.preview);
+                    render_json_view(state->frozen_message.preview, state->frozen_message.timestamp_us);
                     break;
                 case VIEW_TEXT:
                     render_text_view(state->frozen_message.preview);
@@ -1378,7 +1142,7 @@ void inspector_widget_render(AppState* state) {
                     if (state->diff_enabled) {
                         render_json_diff_view(node);
                     } else {
-                        render_json_view(node->last_payload_preview);
+                        render_json_view(node->last_payload_preview, node->last_display_update_us);
                     }
                     break;
                 case VIEW_TEXT:
@@ -1438,6 +1202,17 @@ void inspector_widget_render(AppState* state) {
 
     if (close_requested) {
         state->selected_topic = NULL;
+    }
+
+    // Chart [+] buttons next to numeric JSON lines - only lines that were laid out this frame can be hit
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        for (int li = 0; li < s_pp.line_count; li++) {
+            if (!s_pp.lines[li].is_numeric) continue;
+            if (Clay_PointerOver(CLAY_IDI("ChartAdd", (uint32_t)li))) {
+                chart_add_from_line(state, li);
+                break;
+            }
+        }
     }
 
     // Action button click detection
