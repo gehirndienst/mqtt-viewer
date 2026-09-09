@@ -87,6 +87,12 @@ Packaging must run on the target OS - there is no cross-compilation so far, and 
 
 The packaged binary statically links raylib and SQLite; `libmosquitto` remains dynamic and must be installed on the target system. The `.deb` package declares it as a dependency, but the `.dmg` package does not (macOS has no s-w package manager)
 
+### Why `libmosquitto` is not bundled
+
+Reason: OpenSSL
+
+Mosquitto's TLS support needs OpenSSL, and on Linux the system `libssl3` is fine, but macOS ships no OpenSSL, so a self-contained `.dmg` would have to statically link OpenSSL as well (a multi-minute build, a third pinned dependency to track for security fixes, and a much bigger binary). Using the platform-installed mosquitto also means it picks up OpenSSL security updates with the OS instead of waiting for a new release of this app
+
 ## License
 
 The project is licensed under [Apache License 2.0](LICENSE) - Copyright © 2026 Nikita Smirnov
