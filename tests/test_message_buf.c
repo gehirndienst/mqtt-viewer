@@ -119,6 +119,39 @@ TEST(generation_bumps_on_push_and_clear) {
     message_buf_destroy(&buf);
 }
 
+TEST(remove_topic_compacts_ring_and_frees_payloads) {
+    MessageBuf buf;
+    message_buf_init(&buf, 4);
+    uint8_t p = 7;
+    MessageRecord a = {.timestamp_us = 1, .topic = "car/speed", .payload = &p, .payload_len = 1};
+    MessageRecord b = {.timestamp_us = 2, .topic = "car/rpm", .payload = &p, .payload_len = 1};
+    MessageRecord c = {.timestamp_us = 3, .topic = "car/speed", .payload = &p, .payload_len = 1};
+    MessageRecord d = {.timestamp_us = 4, .topic = "car/speedy", .payload = &p, .payload_len = 1};
+    message_buf_push(&buf, &a);
+    message_buf_push(&buf, &b);
+    message_buf_push(&buf, &c);
+    message_buf_push(&buf, &d);
+    message_buf_push(&buf, &a);
+    uint64_t g = message_buf_generation(&buf);
+
+    ASSERT_EQ(message_buf_remove_topic(&buf, "car/speed"), 2);
+    ASSERT_EQ(message_buf_count(&buf), 2);
+    ASSERT_EQ(message_buf_get(&buf, 0)->timestamp_us, 2);
+    ASSERT_EQ(message_buf_get(&buf, 1)->timestamp_us, 4);
+    ASSERT_TRUE(message_buf_generation(&buf) != g);
+
+    ASSERT_EQ(message_buf_remove_topic(&buf, "nope"), 0);
+    ASSERT_EQ(message_buf_count(&buf), 2);
+
+    // ring still works after compaction
+    message_buf_push(&buf, &c);
+    message_buf_push(&buf, &c);
+    message_buf_push(&buf, &c); // capacity 4: evicts timestamp 2
+    ASSERT_EQ(message_buf_count(&buf), 4);
+    ASSERT_EQ(message_buf_get(&buf, 0)->timestamp_us, 4);
+    message_buf_destroy(&buf);
+}
+
 int main(void) {
     printf("message_buf tests:\n");
     RUN(create_and_destroy);
@@ -129,6 +162,7 @@ int main(void) {
     RUN(null_and_empty_payload_stored_as_null);
     RUN(eviction_and_clear_free_payloads);
     RUN(generation_bumps_on_push_and_clear);
+    RUN(remove_topic_compacts_ring_and_frees_payloads);
     printf("All message_buf tests passed.\n");
     return 0;
 }

@@ -220,6 +220,27 @@ TEST(profile_subscriptions_round_trip_through_json) {
     db_close(db);
 }
 
+TEST(delete_topic_messages_removes_only_that_topic) {
+    Db* db = db_open(":memory:");
+    ASSERT_NOT_NULL(db);
+    MessageRecord recs[3] = {
+        make_record("car/speed", "50"),
+        make_record("car/speedy", "51"),
+        make_record("car/speed", "52"),
+    };
+    ASSERT_TRUE(db_save_messages(db, recs, 3));
+    ASSERT_TRUE(db_delete_topic_messages(db, "car/speed"));
+
+    MessageRecord out[10];
+    int n = db_load_messages(db, out, 10);
+    ASSERT_EQ(n, 1);
+    ASSERT_STR_EQ(out[0].topic, "car/speedy");
+    free(out[0].payload);
+    // the FTS index followed the delete
+    ASSERT_EQ(db_search_messages(db, "50", out, 10), 0);
+    db_close(db);
+}
+
 int main(void) {
     printf("test_db_search:\n");
     RUN(finds_message_by_payload_word);
@@ -233,6 +254,7 @@ int main(void) {
     RUN(results_ordered_by_relevance_and_capped_at_max_count);
     RUN(flush_history_tracks_ring_generation_across_clear_and_eviction);
     RUN(profile_subscriptions_round_trip_through_json);
+    RUN(delete_topic_messages_removes_only_that_topic);
     printf("all tests passed\n");
     return 0;
 }

@@ -611,6 +611,25 @@ bool db_trim_messages(Db* db, int max_rows) {
     return true;
 }
 
+bool db_delete_topic_messages(Db* db, const char* topic) {
+    if (!db || !topic) return false;
+
+    sqlite3_stmt* stmt = NULL;
+    int rc = sqlite3_prepare_v2(db->db, "DELETE FROM messages WHERE topic = ?1;", -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        LOG_ERROR("db_delete_topic_messages: prepare failed: %s", sqlite3_errmsg(db->db));
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, topic, -1, SQLITE_STATIC);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        LOG_ERROR("db_delete_topic_messages: step failed: %s", sqlite3_errmsg(db->db));
+        return false;
+    }
+    return true;
+}
+
 void db_flush_history(Db* db, MessageBuf* history, uint64_t* saved) {
     static MessageRecord batch[256];
 

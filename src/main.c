@@ -268,6 +268,22 @@ int main(void) {
             s_tpt_timer = 0.0f;
         }
 
+        // handle "Clear History" on one topic: ring, persisted rows and node counters must all agree
+        if (state.clear_topic_requested) {
+            TopicNode* node = state.clear_topic_requested;
+            state.clear_topic_requested = NULL;
+            char path[512];
+            topic_node_full_path(node, path, sizeof(path));
+            if (db) {
+                db_flush_history(db, &state.global_history, &history_saved);
+                db_delete_topic_messages(db, path);
+            }
+            uint32_t removed = message_buf_remove_topic(&state.global_history, path);
+            history_saved = message_buf_generation(&state.global_history);
+            topic_node_clear_messages(node);
+            state.total_messages = state.total_messages > removed ? state.total_messages - removed : 0;
+        }
+
         // handle disconnect request
         if (state.disconnect_requested) {
             state.disconnect_requested = false;

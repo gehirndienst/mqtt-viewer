@@ -81,6 +81,7 @@ typedef struct {
 
     // Context menu state
     bool disconnect_requested; // handled in main.c
+    TopicNode* clear_topic_requested; // "Clear History" target
     bool context_menu_open;
     TopicNode* context_menu_target;
     float context_menu_x;

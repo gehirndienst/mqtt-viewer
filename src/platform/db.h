@@ -84,6 +84,12 @@ int db_load_messages(Db* db, MessageRecord* records, int max_count);
 bool db_trim_messages(Db* db, int max_rows);
 
 /**
+ * @brief Delete every stored message on exactly @p topic (no wildcards). The FTS index follows via trigger.
+ * @return true on success.
+ */
+bool db_delete_topic_messages(Db* db, const char* topic);
+
+/**
  * @brief Persist message records not yet written from the history ring, then trim the table.
  *
  * Progress is tracked against message_buf_generation(): @p saved is the generation up to which everything is on

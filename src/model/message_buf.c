@@ -44,6 +44,29 @@ void message_buf_clear(MessageBuf* buf) {
     buf->count = 0;
 }
 
+uint32_t message_buf_remove_topic(MessageBuf* buf, const char* topic) {
+    uint32_t kept = 0;
+    for (uint32_t i = 0; i < buf->count; i++) {
+        uint32_t src = (buf->head + i) % buf->capacity;
+        MessageRecord* r = &buf->entries[src];
+        if (strcmp(r->topic, topic) == 0) {
+            free(r->payload);
+            r->payload = NULL;
+            continue;
+        }
+        uint32_t dst = (buf->head + kept) % buf->capacity;
+        if (dst != src) buf->entries[dst] = *r;
+        kept++;
+    }
+    uint32_t removed = buf->count - kept;
+    if (removed > 0) {
+        // slots past the compacted tail still alias moved payload pointers - the ring only frees inside [head, count)
+        buf->count = kept;
+        buf->generation++;
+    }
+    return removed;
+}
+
 void message_buf_destroy(MessageBuf* buf) {
     message_buf_clear(buf);
     free(buf->entries);

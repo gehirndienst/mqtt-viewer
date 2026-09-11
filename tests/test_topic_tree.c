@@ -171,6 +171,33 @@ TEST(preview_allocated_lazily) {
     topic_tree_destroy(&tree);
 }
 
+TEST(clear_messages_resets_node_and_ancestor_counts) {
+    TopicTree tree;
+    topic_tree_init(&tree, 256);
+    TopicNode* speed = topic_tree_insert(&tree, "car/engine/speed");
+    TopicNode* rpm = topic_tree_insert(&tree, "car/engine/rpm");
+    TopicNode* engine = topic_tree_find(&tree, "car/engine");
+    TopicNode* car = topic_tree_find(&tree, "car");
+    for (int i = 0; i < 3; i++) topic_node_count_message(speed);
+    topic_node_count_message(rpm);
+    speed->has_retained = true;
+    strcpy(topic_node_preview_buf(&tree, speed), "120");
+
+    ASSERT_EQ(topic_node_clear_messages(speed), 3);
+    ASSERT_EQ(speed->message_count, 0);
+    ASSERT_STR_EQ(speed->msg_count_str, "");
+    ASSERT_STR_EQ(topic_node_preview(speed), "");
+    ASSERT_FALSE(speed->has_retained);
+    ASSERT_EQ(speed->subtree_message_count, 0);
+    ASSERT_EQ(engine->subtree_message_count, 1); // rpm's message survives
+    ASSERT_EQ(car->subtree_message_count, 1);
+    ASSERT_STR_EQ(engine->subtree_count_str, "\xce\xa3 1");
+    ASSERT_EQ(rpm->message_count, 1);
+    ASSERT_EQ(topic_node_clear_messages(speed), 0);
+    ASSERT_EQ(car->subtree_message_count, 1);
+    topic_tree_destroy(&tree);
+}
+
 int main(void) {
     printf("topic_tree tests:\n");
     RUN(create_and_destroy);
@@ -185,6 +212,7 @@ int main(void) {
     RUN(count_message_bumps_node_and_ancestors);
     RUN(count_message_on_intermediate_node);
     RUN(preview_allocated_lazily);
+    RUN(clear_messages_resets_node_and_ancestor_counts);
     printf("All topic_tree tests passed\n");
     return 0;
 }

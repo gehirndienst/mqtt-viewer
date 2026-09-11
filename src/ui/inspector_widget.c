@@ -1236,11 +1236,8 @@ void inspector_widget_render(AppState* state) {
                     util_str_copy(state->publish_topic, sizeof(state->publish_topic), full_path);
                     state->publish_panel_open = true;
                     break;
-                case 3: // Clear History - reset node display state
-                    node->message_count = 0;
-                    node->msg_count_str[0] = '\0';
-                    topic_node_preview_clear(node);
-                    node->has_retained = false;
+                case 3: // Clear History - main.c owns the history ring and the DB, so hand it over
+                    state->clear_topic_requested = node;
                     break;
                 default:
                     break;

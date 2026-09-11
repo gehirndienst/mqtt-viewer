@@ -68,4 +68,11 @@ uint64_t message_buf_generation(const MessageBuf* buf);
  */
 void message_buf_clear(MessageBuf* buf);
 
+/**
+ * @brief Drop every record whose topic equals @p topic exactly (no wildcards), freeing their payloads and
+ *        compacting the ring so the survivors stay in order. Bumps the generation when anything was removed.
+ * @return Number of records removed.
+ */
+uint32_t message_buf_remove_topic(MessageBuf* buf, const char* topic);
+
 #endif

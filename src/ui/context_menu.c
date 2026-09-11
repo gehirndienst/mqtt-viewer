@@ -251,20 +251,7 @@ void context_menu_render(AppState* state) {
         state->context_menu_open = false;
     }
     if (do_clear) {
-        TopicNode* n = state->context_menu_target;
-        uint32_t cleared = n->message_count;
-        for (TopicNode* p = n; p; p = p->parent) {
-            p->subtree_message_count -= cleared;
-            if (p->subtree_message_count > 0) {
-                snprintf(p->subtree_count_str, sizeof(p->subtree_count_str), "\xce\xa3 %u", p->subtree_message_count);
-            } else {
-                p->subtree_count_str[0] = '\0';
-            }
-        }
-        n->message_count = 0;
-        n->msg_count_str[0] = '\0';
-        topic_node_preview_clear(n);
-        n->has_retained = false;
+        state->clear_topic_requested = state->context_menu_target;
         state->context_menu_open = false;
     }
 }
