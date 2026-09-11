@@ -36,7 +36,17 @@ struct MqttClient {
     uint8_t sub_qos[MQTT_CLIENT_MAX_SUBS];
     uint32_t sub_count;
     SshTunnel ssh_tunnel;
+    atomic_uint dropped_count; // msg lost to OOM or a full queue
 };
+
+static void note_dropped(MqttClient* client, const char* why) {
+    unsigned n = atomic_fetch_add_explicit(&client->dropped_count, 1, memory_order_relaxed) + 1;
+    if (n == 1 || n % 1000 == 0) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "Dropped %u message(s) so far (%s)", n, why);
+        connection_log_add(client->log, CONN_LOG_WARN, buf);
+    }
+}
 
 static void on_connect(struct mosquitto* mosq, void* obj, int rc) {
     MqttClient* client = obj;
@@ -89,10 +99,12 @@ static void on_message(struct mosquitto* mosq, void* obj, const struct mosquitto
     };
     util_str_copy(m.topic, sizeof(m.topic), msg->topic);
 
-    // allocate payload copy (main thread will own it via arena later)
     if (msg->payloadlen > 0) {
         m.payload = malloc((size_t)msg->payloadlen);
-        if (!m.payload) return;
+        if (!m.payload) {
+            note_dropped(client, "out of memory");
+            return;
+        }
         memcpy(m.payload, msg->payload, (size_t)msg->payloadlen);
     } else {
         m.payload = NULL;
@@ -100,6 +112,7 @@ static void on_message(struct mosquitto* mosq, void* obj, const struct mosquitto
 
     if (!spsc_queue_push(client->msg_queue, &m)) {
         free(m.payload);
+        note_dropped(client, "queue full");
     }
 }
 
