@@ -254,12 +254,12 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t no
             }
         }
         // Row 2: payload preview - max 200 chars
-        if (node->last_payload_preview[0] != '\0') {
+        if (topic_node_preview(node)[0] != '\0') {
             char r2[128];
             snprintf(r2, sizeof(r2), "r2_%p", (void*)node);
             Clay_String r2cs = ui_utils_clay_string(r2);
 
-            const char* full = node->last_payload_preview;
+            const char* full = topic_node_preview(node);
             size_t full_len = strlen(full);
             size_t disp_len = full_len > 200 ? 200 : full_len;
             Clay_String prev_str = {.length = (int32_t)disp_len, .chars = full};

@@ -194,11 +194,11 @@ int main(void) {
                     node->last_display_update_us = m->timestamp_us;
                     snprintf(node->msg_count_str, sizeof(node->msg_count_str), "%u", node->message_count);
                     if (m->payload) {
-                        util_preview_build_compact(node->last_payload_preview, sizeof(node->last_payload_preview),
+                        util_preview_build_compact(topic_node_preview_buf(&state.topic_tree, node), TOPIC_PREVIEW_LEN,
                                                    m->payload, m->payload_len);
                     } else {
                         // zero-length payload (e.g. "clear retained") must not leave a stale preview
-                        node->last_payload_preview[0] = '\0';
+                        topic_node_preview_clear(node);
                     }
                 }
 

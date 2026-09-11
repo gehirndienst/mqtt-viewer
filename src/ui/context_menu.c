@@ -263,7 +263,7 @@ void context_menu_render(AppState* state) {
         }
         n->message_count = 0;
         n->msg_count_str[0] = '\0';
-        n->last_payload_preview[0] = '\0';
+        topic_node_preview_clear(n);
         n->has_retained = false;
         state->context_menu_open = false;
     }

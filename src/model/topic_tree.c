@@ -8,6 +8,7 @@
 
 void topic_tree_init(TopicTree* tree, uint32_t initial_pool_size) {
     pool_alloc_init(&tree->node_pool, sizeof(TopicNode), initial_pool_size);
+    pool_alloc_init(&tree->preview_pool, TOPIC_PREVIEW_LEN, TOPIC_NODE_PAYLOAD_PREVIEW_SLAB_CAPACITY);
     tree->root_count = 0;
     tree->total_count = 0;
     memset(tree->roots, 0, sizeof(tree->roots));
@@ -15,6 +16,7 @@ void topic_tree_init(TopicTree* tree, uint32_t initial_pool_size) {
 
 void topic_tree_destroy(TopicTree* tree) {
     pool_alloc_destroy(&tree->node_pool);
+    pool_alloc_destroy(&tree->preview_pool);
     tree->root_count = 0;
     tree->total_count = 0;
 }
@@ -30,7 +32,7 @@ static TopicNode* node_new(TopicTree* tree, const char* segment, TopicNode* pare
     node->expanded = false;
     node->last_message_ts = 0;
     node->last_subtree_message_ts = 0;
-    node->last_payload_preview[0] = '\0';
+    node->last_payload_preview = NULL;
     node->subtree_count_str[0] = '\0';
     node->throughput = 0.0f;
     tree->total_count++;
@@ -140,4 +142,20 @@ void topic_node_full_path(const TopicNode* node, char* buf, size_t buf_size) {
         pos += seg_len;
     }
     buf[pos] = '\0';
+}
+
+const char* topic_node_preview(const TopicNode* node) {
+    return node->last_payload_preview ? node->last_payload_preview : "";
+}
+
+char* topic_node_preview_buf(TopicTree* tree, TopicNode* node) {
+    if (!node->last_payload_preview) {
+        node->last_payload_preview = pool_alloc_get(&tree->preview_pool);
+        node->last_payload_preview[0] = '\0';
+    }
+    return node->last_payload_preview;
+}
+
+void topic_node_preview_clear(TopicNode* node) {
+    if (node->last_payload_preview) node->last_payload_preview[0] = '\0';
 }

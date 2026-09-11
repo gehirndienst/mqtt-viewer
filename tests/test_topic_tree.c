@@ -1,5 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+#include <string.h>
+
 #include "model/topic_tree.h"
 #include "test_helpers.h"
 
@@ -135,6 +137,40 @@ TEST(count_message_on_intermediate_node) {
     topic_tree_destroy(&tree);
 }
 
+TEST(preview_allocated_lazily) {
+    TopicTree tree;
+    topic_tree_init(&tree, 256);
+    TopicNode* leaf = topic_tree_insert(&tree, "home/kitchen/temp");
+    TopicNode* mid = topic_tree_find(&tree, "home/kitchen");
+    ASSERT_NOT_NULL(leaf);
+    ASSERT_NOT_NULL(mid);
+
+    // No block until someone asks for a writable buffer; the read view is always a valid string
+    ASSERT_NULL(leaf->last_payload_preview);
+    ASSERT_STR_EQ(topic_node_preview(leaf), "");
+    ASSERT_EQ(pool_alloc_used(&tree.preview_pool), 0);
+
+    char* buf = topic_node_preview_buf(&tree, leaf);
+    ASSERT_NOT_NULL(buf);
+    ASSERT_EQ(pool_alloc_used(&tree.preview_pool), 1);
+    strcpy(buf, "21.5");
+    ASSERT_STR_EQ(topic_node_preview(leaf), "21.5");
+
+    // Second request hands back the same block; intermediate node still has none
+    ASSERT_EQ(topic_node_preview_buf(&tree, leaf), buf);
+    ASSERT_EQ(pool_alloc_used(&tree.preview_pool), 1);
+    ASSERT_NULL(mid->last_payload_preview);
+
+    // Clearing empties the text but keeps the block
+    topic_node_preview_clear(leaf);
+    ASSERT_STR_EQ(topic_node_preview(leaf), "");
+    ASSERT_EQ(leaf->last_payload_preview, buf);
+    topic_node_preview_clear(mid); // no-op on a node without a block
+    ASSERT_NULL(mid->last_payload_preview);
+
+    topic_tree_destroy(&tree);
+}
+
 int main(void) {
     printf("topic_tree tests:\n");
     RUN(create_and_destroy);
@@ -148,6 +184,7 @@ int main(void) {
     RUN(insert_multiple_roots);
     RUN(count_message_bumps_node_and_ancestors);
     RUN(count_message_on_intermediate_node);
+    RUN(preview_allocated_lazily);
     printf("All topic_tree tests passed\n");
     return 0;
 }

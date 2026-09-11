@@ -336,7 +336,7 @@ static void render_pp_removed(int merged_idx, int prev_idx) {
 }
 
 static void render_json_diff_view(TopicNode* node) {
-    const char* src = node->last_payload_preview;
+    const char* src = topic_node_preview(node);
     if (src[0] == '\0') {
         CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
         return;
@@ -1046,10 +1046,10 @@ void inspector_widget_render(AppState* state) {
                  }) {
                 CLAY_TEXT(CLAY_STRING("Latest Value"), THEME_TEXT_SMALL);
 
-                if (node->last_payload_preview[0] != '\0') {
+                if (topic_node_preview(node)[0] != '\0') {
                     // Show first 150 chars only - full payload is in the tabs below
                     static char s_latest_excerpt[160];
-                    const char* full_pv = node->last_payload_preview;
+                    const char* full_pv = topic_node_preview(node);
                     size_t full_pv_len = strlen(full_pv);
                     if (full_pv_len > 150) {
                         memcpy(s_latest_excerpt, full_pv, 150);
@@ -1142,14 +1142,14 @@ void inspector_widget_render(AppState* state) {
                     if (state->diff_enabled) {
                         render_json_diff_view(node);
                     } else {
-                        render_json_view(node->last_payload_preview, node->last_display_update_us);
+                        render_json_view(topic_node_preview(node), node->last_display_update_us);
                     }
                     break;
                 case VIEW_TEXT:
-                    render_text_view(node->last_payload_preview);
+                    render_text_view(topic_node_preview(node));
                     break;
                 case VIEW_HEX:
-                    render_hex_view(node->last_payload_preview);
+                    render_hex_view(topic_node_preview(node));
                     break;
                 case VIEW_HISTORY:
                     render_history_view(state, node);
@@ -1222,11 +1222,11 @@ void inspector_widget_render(AppState* state) {
                 case 0: // Copy Payload
                     if (state->inspector_view == VIEW_HEX) {
                         static char hex_copy_buf[5248]; // 64 lines x 82 chars
-                        const char* src = node->last_payload_preview;
+                        const char* src = topic_node_preview(node);
                         build_hex_dump_str(src, (int)strlen(src), hex_copy_buf, sizeof(hex_copy_buf));
                         SetClipboardText(hex_copy_buf);
                     } else {
-                        SetClipboardText(node->last_payload_preview);
+                        SetClipboardText(topic_node_preview(node));
                     }
                     break;
                 case 1: // Copy Topic
@@ -1239,7 +1239,7 @@ void inspector_widget_render(AppState* state) {
                 case 3: // Clear History - reset node display state
                     node->message_count = 0;
                     node->msg_count_str[0] = '\0';
-                    node->last_payload_preview[0] = '\0';
+                    topic_node_preview_clear(node);
                     node->has_retained = false;
                     break;
                 default:
