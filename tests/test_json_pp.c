@@ -134,6 +134,23 @@ TEST(find_by_dot_path) {
     ASSERT_STR_EQ(l->val, "42");
 }
 
+TEST(number_at_falls_back_to_bare_root) {
+    double v = 0;
+    json_pp_run(&s_pp, "{\"speed\": 52, \"unit\": \"km/h\"}");
+    ASSERT_TRUE(json_pp_number_at(&s_pp, "speed", &v));
+    ASSERT_EQ(v, 52.0);
+    ASSERT_FALSE(json_pp_number_at(&s_pp, "unit", &v)); // exists, not numeric
+    ASSERT_FALSE(json_pp_number_at(&s_pp, "zzz", &v)); // missing, root is an object - no fallback
+    json_pp_run(&s_pp, "500");
+    ASSERT_TRUE(json_pp_number_at(&s_pp, "speed", &v));
+    ASSERT_EQ(v, 500.0);
+    json_pp_run(&s_pp, "\"7.5\"");
+    ASSERT_TRUE(json_pp_number_at(&s_pp, "speed", &v));
+    ASSERT_EQ(v, 7.5);
+    json_pp_run(&s_pp, "\"fast\"");
+    ASSERT_FALSE(json_pp_number_at(&s_pp, "speed", &v));
+}
+
 int main(void) {
     printf("json_pp tests:\n");
     RUN(nested_object_lines_paths_and_kinds);
@@ -146,6 +163,7 @@ int main(void) {
     RUN(line_number_handles_atoms_and_numeric_strings);
     RUN(line_string_unquotes_and_unescapes);
     RUN(find_by_dot_path);
+    RUN(number_at_falls_back_to_bare_root);
     printf("All json_pp tests passed\n");
     return 0;
 }

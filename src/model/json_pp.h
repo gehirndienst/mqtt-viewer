@@ -84,6 +84,13 @@ const JsonPPLine* json_pp_find(const JsonPP* pp, const char* dot_path);
 bool json_pp_line_number(const JsonPPLine* line, double* out);
 
 /**
+ * @brief Numeric value at @p dot_path, or - when that path is absent and the whole payload is a bare number or a
+ *        numeric string - the payload itself. Lets a hand-published "500" land on a series charted via "speed".
+ * @return false when neither yields a finite number.
+ */
+bool json_pp_number_at(const JsonPP* pp, const char* dot_path, double* out);
+
+/**
  * @brief String value of a line with the quotes removed and \" \\ \/ \n \r \t unescaped (\uXXXX is left as-is).
  *        Output is truncated to @p cap - 1 bytes and always NUL-terminated.
  * @return false if the line is not a string.

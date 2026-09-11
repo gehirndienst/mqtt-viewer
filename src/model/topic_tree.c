@@ -118,6 +118,25 @@ void topic_node_count_message(TopicNode* node) {
     }
 }
 
+uint32_t topic_node_clear_messages(TopicNode* node) {
+    uint32_t cleared = node->message_count;
+    if (cleared > 0) {
+        for (TopicNode* p = node; p; p = p->parent) {
+            p->subtree_message_count = p->subtree_message_count > cleared ? p->subtree_message_count - cleared : 0;
+            if (p->subtree_message_count > 0) {
+                snprintf(p->subtree_count_str, sizeof(p->subtree_count_str), "\xce\xa3 %u", p->subtree_message_count);
+            } else {
+                p->subtree_count_str[0] = '\0';
+            }
+        }
+    }
+    node->message_count = 0;
+    node->msg_count_str[0] = '\0';
+    topic_node_preview_clear(node);
+    node->has_retained = false;
+    return cleared;
+}
+
 void topic_node_full_path(const TopicNode* node, char* buf, size_t buf_size) {
     if (buf_size == 0) {
         return;

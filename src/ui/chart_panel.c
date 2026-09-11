@@ -313,6 +313,6 @@ void chart_panel_capture_sample(AppState* state, const char* topic, const uint8_
             formatted = true;
         }
         double v;
-        if (json_pp_line_number(json_pp_find(&s_pp, s->dot_path), &v)) chart_series_push_sample(s, ts_us, v);
+        if (json_pp_number_at(&s_pp, s->dot_path, &v)) chart_series_push_sample(s, ts_us, v);
     }
 }

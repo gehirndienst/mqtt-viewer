@@ -12,8 +12,9 @@
 #define CHART_MAX_SERIES 16
 #define CHART_DOT_PATH_LEN 128
 #define CHART_TOPIC_LEN 256
-// Minimum interval between samples for a single series (microseconds)
-// Decimates very high-rate topics. 50 ms = 20 Hz cap per series
+// Minimum interval between kept samples for a single series (microseconds). 50 ms = 20 Hz cap per series.
+// Within one such bucket the sample that deviates most from the previous bucket's value wins, so a spike published
+// into a fast stream is not decimated away
 #define CHART_MIN_SAMPLE_INTERVAL_US 50000ULL
 // Sliding time window per series: samples older than this from the newest are evicted from the head when a new sample
 // arrives, so the X-axis represents the last CHART_TIME_WINDOW_US of activity
@@ -34,7 +35,8 @@ typedef struct {
     double y_min; // running min over current window
     double y_max; // running max over current window
     bool y_dirty; // true if min/max may need recompute (eviction of extremum)
-    uint64_t last_sample_ts_us; // for sample-interval throttle and dedupe
+    uint64_t last_sample_ts_us; // timestamp of the newest kept sample = anchor of the open bucket
+    double bucket_ref; // value the open bucket's candidates are compared against (previous kept sample)
 } ChartSeries;
 
 /** @brief Reset all fields to inactive/empty */
@@ -49,7 +51,8 @@ void chart_series_reset(ChartSeries* s);
 void chart_series_init(ChartSeries* s, const char* topic, const char* dot_path);
 
 /**
- * @brief Push a (timestamp, value) sample, subject to the per-series rate throttle.
+ * @brief Push a (timestamp, value) sample, subject to the per-series rate cap. A sample landing inside the open
+ *        bucket replaces the kept one when it lies farther from the previous bucket's value.
  * @param s       Series to update.
  * @param ts_us   Sample timestamp in microseconds.
  * @param value   Numeric value.

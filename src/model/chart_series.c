@@ -34,7 +34,18 @@ bool chart_series_push_sample(ChartSeries* s, uint64_t ts_us, double value) {
 
     if (s->count > 0) {
         if (ts_us <= s->last_sample_ts_us) return false;
-        if (ts_us - s->last_sample_ts_us < CHART_MIN_SAMPLE_INTERVAL_US) return false;
+        if (ts_us - s->last_sample_ts_us < CHART_MIN_SAMPLE_INTERVAL_US) {
+            ChartSample* cur = &s->samples[(s->head + s->count - 1) % CHART_MAX_SAMPLES];
+            if (fabs(value - s->bucket_ref) <= fabs(cur->value - s->bucket_ref)) return false;
+            if (cur->value == s->y_min || cur->value == s->y_max) s->y_dirty = true;
+            cur->value = value;
+            if (value < s->y_min) s->y_min = value;
+            if (value > s->y_max) s->y_max = value;
+            return true;
+        }
+        s->bucket_ref = s->samples[(s->head + s->count - 1) % CHART_MAX_SAMPLES].value;
+    } else {
+        s->bucket_ref = value;
     }
 
     while (s->count > 0) {

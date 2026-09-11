@@ -271,6 +271,14 @@ bool json_pp_line_number(const JsonPPLine* line, double* out) {
     return true;
 }
 
+bool json_pp_number_at(const JsonPP* pp, const char* dot_path, double* out) {
+    const JsonPPLine* line = json_pp_find(pp, dot_path);
+    if (line) return json_pp_line_number(line, out);
+    // path missing: a payload that is nothing but one scalar has line_count == 1 with dot_path ""
+    if (pp->line_count == 1 && pp->lines[0].dot_path[0] == '\0') return json_pp_line_number(&pp->lines[0], out);
+    return false;
+}
+
 bool json_pp_line_string(const JsonPPLine* line, char* out, size_t cap) {
     if (!line || cap == 0 || line->val_kind != JSON_PP_VAL_STRING) return false;
     size_t vlen = strlen(line->val);

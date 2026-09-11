@@ -76,3 +76,9 @@ test_json_pp = executable('test_json_pp',
     include_directories : test_inc
 )
 test('json_pp', test_json_pp)
+
+test_chart_series = executable('test_chart_series',
+    'test_chart_series.c', '../src/model/chart_series.c',
+    include_directories : test_inc
+)
+test('chart_series', test_chart_series)

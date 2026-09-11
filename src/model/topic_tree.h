@@ -80,6 +80,13 @@ TopicNode* topic_tree_find(const TopicTree* tree, const char* topic);
  */
 void topic_node_count_message(TopicNode* node);
 
+/**
+ * @brief Forget every message counted on @p node itself: own count, badge strings, preview, retained flag, and the
+ *        matching share of the subtree counts up to the root. Children are untouched.
+ * @return The node's message_count before the reset.
+ */
+uint32_t topic_node_clear_messages(TopicNode* node);
+
 /** @brief Total number of leaf and intermediate nodes. */
 uint32_t topic_tree_count(const TopicTree* tree);
 
