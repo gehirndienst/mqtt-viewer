@@ -30,6 +30,7 @@ void message_buf_push(MessageBuf* buf, const MessageRecord* record) {
         memcpy(buf->entries[idx].payload, record->payload, record->payload_len);
     } else {
         buf->entries[idx].payload = NULL;
+        buf->entries[idx].payload_len = 0;
     }
 }
 
