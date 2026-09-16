@@ -57,7 +57,6 @@ static const TopicNode* s_diff_prev_node = NULL;
 static uint64_t s_diff_prev_ts = 0;
 static char s_diff_prev_text[DIFF_MAX_LINES][DIFF_LINE_LEN];
 static int s_diff_prev_text_depth[DIFF_MAX_LINES];
-static int s_diff_prev_text_count = 0;
 static char s_diff_curr_text[DIFF_MAX_LINES][DIFF_LINE_LEN];
 static DiffMergedEntry s_diff_merged[DIFF_MAX_LINES * 2];
 static int s_diff_merged_count = 0;
@@ -405,7 +404,6 @@ static void render_json_diff_view(TopicNode* node) {
         memcpy(s_diff_prev_payload, src, len);
         s_diff_prev_len = len;
         s_diff_merged_count = 0;
-        s_diff_prev_text_count = 0;
     } else if (ts_advanced) {
         int curr_n = s_pp.line_count > DIFF_MAX_LINES ? DIFF_MAX_LINES : s_pp.line_count;
         static int curr_depth[DIFF_MAX_LINES];
@@ -421,7 +419,6 @@ static void render_json_diff_view(TopicNode* node) {
             diff_format_line(&s_pp_prev.lines[i], s_diff_prev_text[i]);
             s_diff_prev_text_depth[i] = s_pp_prev.lines[i].depth;
         }
-        s_diff_prev_text_count = prev_n;
 
         diff_compute(prev_n, curr_n, curr_depth);
 
