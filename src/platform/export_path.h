@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Resolves the default CSV export destination path and file-name slug
+ */
 #ifndef EXPORT_PATH_H
 #define EXPORT_PATH_H
 

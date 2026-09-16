@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Message inspector panel: JSON/CBOR/Hex/History tabs for the selected topic's payload
+ */
 #ifndef INSPECTOR_WIDGET_H
 #define INSPECTOR_WIDGET_H
 

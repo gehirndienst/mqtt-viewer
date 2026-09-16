@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Root AppState struct wiring together the topic tree, buffers, connection, UI state, and profiles
+ */
 #ifndef APP_STATE_H
 #define APP_STATE_H
 

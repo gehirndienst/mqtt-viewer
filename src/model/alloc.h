@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Abort-on-OOM allocation wrapper
+ */
 #ifndef ALLOC_H
 #define ALLOC_H
 
@@ -7,11 +11,9 @@
 #include <stdlib.h>
 
 /**
- * @brief Return @p ptr, or abort the process if it is NULL.
- *
- * Wrap malloc()/calloc() with this so an out-of-memory result fails loudly
- * with a diagnostic instead of silently dereferencing NULL. Unlike assert(),
- * the check stays active in release (NDEBUG) builds.
+ * @brief Return @p ptr, or abort the process if it is NULL
+ * @param ptr  Pointer to check
+ * @return @p ptr if not NULL
  */
 static inline void* alloc_check(void* ptr) {
     if (ptr == NULL) {

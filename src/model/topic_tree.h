@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Hierarchical index of every topic seen, pool-allocated, with each node's latest payload snapshot
+ */
 #ifndef TOPIC_TREE_H
 #define TOPIC_TREE_H
 

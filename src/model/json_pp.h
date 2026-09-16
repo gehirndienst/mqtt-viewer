@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Lenient JSON line-model formatter / pretty-printer
+ */
 #ifndef JSON_PP_H
 #define JSON_PP_H
 

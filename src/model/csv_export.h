@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief RFC 4180 CSV writer for a MessageBuf's history
+ */
 #ifndef CSV_EXPORT_H
 #define CSV_EXPORT_H
 

@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Slab pool allocator for fixed-size elements with O(1) get/put via a free list
+ */
 #ifndef POOL_ALLOC_H
 #define POOL_ALLOC_H
 

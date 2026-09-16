@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Strict RFC 8949 CBOR decoder that renders into JSON pretty-printer line model
+ */
 #ifndef CBOR_PP_H
 #define CBOR_PP_H
 

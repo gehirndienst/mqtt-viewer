@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Floating publish panel: topic/payload input, QoS/retain toggles, and the Publish action
+ */
 #ifndef PUBLISH_PANEL_H
 #define PUBLISH_PANEL_H
 

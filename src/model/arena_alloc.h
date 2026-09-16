@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Bump arena allocator: chunked growth, O(1) allocation, reset-all-at-once instead of per-object free
+ */
 #ifndef ARENA_ALLOC_H
 #define ARENA_ALLOC_H
 

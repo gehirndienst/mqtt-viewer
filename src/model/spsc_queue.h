@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Lock-free SPSC ring buffer
+ */
 #ifndef SPSC_QUEUE_H
 #define SPSC_QUEUE_H
 

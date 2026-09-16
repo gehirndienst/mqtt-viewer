@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Bottom status bar: topic/message counters and the Publish shortcut button
+ */
 #ifndef STATUS_BAR_H
 #define STATUS_BAR_H
 

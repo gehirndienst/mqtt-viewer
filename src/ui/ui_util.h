@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Clay-facing helpers
+ */
 #ifndef MV_UI_UTIL_H
 #define MV_UI_UTIL_H
 

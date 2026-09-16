@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Top menu bar: connection status and the Log panel toggle
+ */
 #ifndef MENU_BAR_H
 #define MENU_BAR_H
 

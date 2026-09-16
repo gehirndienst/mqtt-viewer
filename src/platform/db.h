@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief SQLite3 persistence: broker profiles, settings, message history (with FTS5 search), and path resolution
+ */
 #ifndef DB_H
 #define DB_H
 

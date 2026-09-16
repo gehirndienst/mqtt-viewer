@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Spawns and supervises an `ssh -L` local port-forward for reaching a broker behind a jumphost
+ */
 #ifndef SSH_TUNNEL_H
 #define SSH_TUNNEL_H
 

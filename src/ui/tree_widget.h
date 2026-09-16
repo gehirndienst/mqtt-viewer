@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Topic tree widget: keyboard navigation/selection, and DB-backed message search mode
+ */
 #ifndef TREE_WIDGET_H
 #define TREE_WIDGET_H
 

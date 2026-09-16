@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Right-click context menu for a topic tree node (copy path, publish here, expand/collapse, clear)
+ */
 #ifndef CONTEXT_MENU_H
 #define CONTEXT_MENU_H
 

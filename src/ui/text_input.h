@@ -1,3 +1,10 @@
+
+// SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
+// SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Inline text-field helpers: control-char filtering, clipboard paste/copy, select-all shortcuts
+ */
 #ifndef MV_UI_TEXT_INPUT_H
 #define MV_UI_TEXT_INPUT_H
 

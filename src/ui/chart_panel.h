@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Chart panel: reserves and draws the time-series plots stacked under the topic tree
+ */
 #ifndef CHART_PANEL_H
 #define CHART_PANEL_H
 

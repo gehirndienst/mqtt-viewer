@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Thread-safe ring buffer of user-facing connection events (the UI's ConnectionLog)
+ */
 #ifndef CONNECTION_LOG_H
 #define CONNECTION_LOG_H
 

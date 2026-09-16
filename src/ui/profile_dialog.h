@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Broker profile editor dialog: create/edit/delete profiles, persist to DB, connect on demand
+ */
 #ifndef PROFILE_DIALOG_H
 #define PROFILE_DIALOG_H
 

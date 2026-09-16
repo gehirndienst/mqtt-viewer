@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Persisted broker connection profile: host, auth, TLS, and default subscriptions
+ */
 #ifndef BROKER_PROFILE_H
 #define BROKER_PROFILE_H
 

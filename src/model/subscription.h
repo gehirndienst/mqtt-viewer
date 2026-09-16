@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief MQTT 3.1.1 topic filter matching (`+`/`#` wildcards, $SYS exclusion)
+ */
 #ifndef SUBSCRIPTION_H
 #define SUBSCRIPTION_H
 

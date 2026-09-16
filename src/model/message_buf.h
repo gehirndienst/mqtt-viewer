@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Fixed-capacity ring buffer of received MessageRecord values (the global message history)
+ */
 #ifndef MESSAGE_BUF_H
 #define MESSAGE_BUF_H
 

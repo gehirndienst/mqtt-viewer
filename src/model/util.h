@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Non-Clay Utils
+ */
 #ifndef MV_UTIL_H
 #define MV_UTIL_H
 

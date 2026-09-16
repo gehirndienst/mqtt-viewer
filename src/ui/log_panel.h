@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Connection log panel: newest-first list of ConnectionLog entries with Clear/Close controls
+ */
 #ifndef LOG_PANEL_H
 #define LOG_PANEL_H
 

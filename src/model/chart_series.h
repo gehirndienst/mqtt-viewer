@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
+/**
+ * @file
+ * @brief Rate-capped rolling time-window ring buffer of numeric samples for one chart series
+ */
 #ifndef CHART_SERIES_H
 #define CHART_SERIES_H
 
