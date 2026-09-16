@@ -2,6 +2,26 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-09-16
+
+### Added
+
+- CBOR tab in the topic inspector: strict RFC 8949 decoding
+- The topic filter keeps a node visible when any of its descendants match, so matches inside collapsed subtrees stay reachable
+- The connection log warns when incoming messages are dropped because the queue is full or an allocation failed with a running count
+
+### Changed
+
+- Removed the bundled cJSON dependency, replaced by the selfmade JSON line formatter
+- The hex tab shows the wire bytes of the latest message; it used to hexdump the sanitized text preview so binary payloads were misrepresented
+- Charts keep the most deviating sample within each 50 ms window instead of decimating
+- Topic nodes allocate their payload snapshot lazily cutting per-topic memory on trees with many silent nodes
+
+### Fixed
+
+- Clear History now drops the topic's messages from the in-memory history and the database not just the tree node's counters
+- Sorted recipes in the justfile
+
 ## [1.0.3] - 2026-09-02
 
 ### Added
