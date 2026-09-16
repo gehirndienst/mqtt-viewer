@@ -9,13 +9,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - CBOR tab in the topic inspector: strict RFC 8949 decoding
 - The topic filter keeps a node visible when any of its descendants match, so matches inside collapsed subtrees stay reachable
 - The connection log warns when incoming messages are dropped because the queue is full or an allocation failed with a running count
+- @file blocks for the Doxygen API docs
 
 ### Changed
 
 - Removed the bundled cJSON dependency, replaced by the selfmade JSON line formatter
+- Message buffer and connection log carry a generation counter so the history and log views rebuild only when the contents actually changed
 - The hex tab shows the wire bytes of the latest message; it used to hexdump the sanitized text preview so binary payloads were misrepresented
 - Charts keep the most deviating sample within each 50 ms window instead of decimating
 - Topic nodes allocate their payload snapshot lazily cutting per-topic memory on trees with many silent nodes
+- Shared `model/util` and `ui/ui_util` helpers
 
 ### Fixed
 
