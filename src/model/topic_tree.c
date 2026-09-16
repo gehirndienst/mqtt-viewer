@@ -6,21 +6,6 @@
 #include "model/topic_tree.h"
 #include "model/util.h"
 
-void topic_tree_init(TopicTree* tree, uint32_t initial_pool_size) {
-    pool_alloc_init(&tree->node_pool, sizeof(TopicNode), initial_pool_size);
-    pool_alloc_init(&tree->preview_pool, TOPIC_PREVIEW_LEN, TOPIC_NODE_PAYLOAD_PREVIEW_SLAB_CAPACITY);
-    tree->root_count = 0;
-    tree->total_count = 0;
-    memset(tree->roots, 0, sizeof(tree->roots));
-}
-
-void topic_tree_destroy(TopicTree* tree) {
-    pool_alloc_destroy(&tree->node_pool);
-    pool_alloc_destroy(&tree->preview_pool);
-    tree->root_count = 0;
-    tree->total_count = 0;
-}
-
 static TopicNode* node_new(TopicTree* tree, const char* segment, TopicNode* parent) {
     TopicNode* node = pool_alloc_get(&tree->node_pool);
     util_str_copy(node->segment, sizeof(node->segment), segment);
@@ -32,7 +17,9 @@ static TopicNode* node_new(TopicTree* tree, const char* segment, TopicNode* pare
     node->expanded = false;
     node->last_message_ts = 0;
     node->last_subtree_message_ts = 0;
-    node->last_payload_preview = NULL;
+    node->last_payload = NULL;
+    node->last_payload_stored = 0;
+    node->last_payload_len = 0;
     node->subtree_count_str[0] = '\0';
     node->throughput = 0.0f;
     tree->total_count++;
@@ -53,6 +40,21 @@ static void add_child(TopicNode** children, uint32_t* count, TopicNode* child) {
         children[*count] = child;
         (*count)++;
     }
+}
+
+void topic_tree_init(TopicTree* tree, uint32_t initial_pool_size) {
+    pool_alloc_init(&tree->node_pool, sizeof(TopicNode), initial_pool_size);
+    pool_alloc_init(&tree->payload_pool, TOPIC_PAYLOAD_CAP, TOPIC_NODE_PAYLOAD_SLAB_CAPACITY);
+    tree->root_count = 0;
+    tree->total_count = 0;
+    memset(tree->roots, 0, sizeof(tree->roots));
+}
+
+void topic_tree_destroy(TopicTree* tree) {
+    pool_alloc_destroy(&tree->node_pool);
+    pool_alloc_destroy(&tree->payload_pool);
+    tree->root_count = 0;
+    tree->total_count = 0;
 }
 
 TopicNode* topic_tree_insert(TopicTree* tree, const char* topic) {
@@ -107,10 +109,6 @@ TopicNode* topic_tree_find(const TopicTree* tree, const char* topic) {
     return current;
 }
 
-uint32_t topic_tree_count(const TopicTree* tree) {
-    return tree->total_count;
-}
-
 void topic_node_count_message(TopicNode* node) {
     node->message_count++;
     for (TopicNode* n = node; n; n = n->parent) {
@@ -132,9 +130,33 @@ uint32_t topic_node_clear_messages(TopicNode* node) {
     }
     node->message_count = 0;
     node->msg_count_str[0] = '\0';
-    topic_node_preview_clear(node);
+    topic_node_payload_clear(node);
     node->has_retained = false;
     return cleared;
+}
+
+uint32_t topic_tree_count(const TopicTree* tree) {
+    return tree->total_count;
+}
+
+const uint8_t* topic_node_payload(const TopicNode* node, uint32_t* len) {
+    *len = node->last_payload ? node->last_payload_stored : 0;
+    return node->last_payload;
+}
+
+void topic_node_payload_set(TopicTree* tree, TopicNode* node, const uint8_t* src, uint32_t len) {
+    if (!src || len == 0) {
+        topic_node_payload_clear(node);
+        return;
+    }
+    if (!node->last_payload) node->last_payload = pool_alloc_get(&tree->payload_pool);
+    uint32_t n = len < TOPIC_PAYLOAD_CAP ? len : TOPIC_PAYLOAD_CAP;
+    memcpy(node->last_payload, src, n);
+    node->last_payload_stored = n;
+}
+
+void topic_node_payload_clear(TopicNode* node) {
+    node->last_payload_stored = 0;
 }
 
 void topic_node_full_path(const TopicNode* node, char* buf, size_t buf_size) {
@@ -161,20 +183,4 @@ void topic_node_full_path(const TopicNode* node, char* buf, size_t buf_size) {
         pos += seg_len;
     }
     buf[pos] = '\0';
-}
-
-const char* topic_node_preview(const TopicNode* node) {
-    return node->last_payload_preview ? node->last_payload_preview : "";
-}
-
-char* topic_node_preview_buf(TopicTree* tree, TopicNode* node) {
-    if (!node->last_payload_preview) {
-        node->last_payload_preview = pool_alloc_get(&tree->preview_pool);
-        node->last_payload_preview[0] = '\0';
-    }
-    return node->last_payload_preview;
-}
-
-void topic_node_preview_clear(TopicNode* node) {
-    if (node->last_payload_preview) node->last_payload_preview[0] = '\0';
 }

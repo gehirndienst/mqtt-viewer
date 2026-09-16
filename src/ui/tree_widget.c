@@ -8,7 +8,9 @@
 #include "clay.h"
 #include "raylib.h"
 
+#include "model/alloc.h"
 #include "model/app_state.h"
+#include "model/arena_alloc.h"
 #include "model/util.h"
 #include "platform/db.h"
 #include "ui/inspector_widget.h"
@@ -30,6 +32,21 @@
 // Ancestors of the updated topic get a calmer version: darker colour, no ramp/hold (so it doesn't blink), and a longer
 // fade-out
 #define TREE_FLASH_SUBTREE_DURATION_US 900000ULL
+
+#define TREE_ROW_PREVIEW_CAP 205 // 200 visible chars + "..." + NUL
+
+static MessageRecord s_search_results[SEARCH_MAX_RESULTS];
+static int s_search_result_count = 0;
+static int s_search_expanded_idx = -1; // which result row is expanded in place, -1 = none
+static char s_last_search_query[256] = "";
+static bool s_last_search_mode = false;
+static char s_search_ts_bufs[SEARCH_MAX_RESULTS][16];
+static char s_search_meta_bufs[SEARCH_MAX_RESULTS][32];
+
+// Row previews are sanitized from the raw payload every frame;
+// Clay reads the strings after layout, so they live here until the next frame's reset
+static ArenaAlloc s_row_text;
+static bool s_row_text_ready = false;
 
 // Highlight strength in [0,1] for a topic whose last message arrived at last_message_ts
 static float tree_flash_alpha(uint64_t now_us, uint64_t last_message_ts) {
@@ -55,14 +72,6 @@ static float tree_subtree_flash_alpha(uint64_t now_us, uint64_t last_subtree_ts)
     float t = 1.0f - (float)age / (float)TREE_FLASH_SUBTREE_DURATION_US;
     return t * t; // ease out no hold
 }
-
-static MessageRecord s_search_results[SEARCH_MAX_RESULTS];
-static int s_search_result_count = 0;
-static int s_search_expanded_idx = -1; // which result row is expanded in place, -1 = none
-static char s_last_search_query[256] = "";
-static bool s_last_search_mode = false;
-static char s_search_ts_bufs[SEARCH_MAX_RESULTS][16];
-static char s_search_meta_bufs[SEARCH_MAX_RESULTS][32];
 
 // One pass over the tree marking node->filter_match = "own path or any descendant's path contains filter"
 // (case-insensitive). The path is extended in place on the way down instead of rebuilt per node
@@ -254,15 +263,16 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t no
             }
         }
         // Row 2: payload preview - max 200 chars
-        if (topic_node_preview(node)[0] != '\0') {
+        uint32_t pl_len = 0;
+        const uint8_t* pl = topic_node_payload(node, &pl_len);
+        if (pl_len > 0) {
             char r2[128];
             snprintf(r2, sizeof(r2), "r2_%p", (void*)node);
             Clay_String r2cs = ui_utils_clay_string(r2);
 
-            const char* full = topic_node_preview(node);
-            size_t full_len = strlen(full);
-            size_t disp_len = full_len > 200 ? 200 : full_len;
-            Clay_String prev_str = {.length = (int32_t)disp_len, .chars = full};
+            char* text = alloc_check(arena_alloc_get(&s_row_text, TREE_ROW_PREVIEW_CAP));
+            util_preview_build_compact(text, TREE_ROW_PREVIEW_CAP, pl, pl_len);
+            Clay_String prev_str = ui_utils_clay_string(text);
             uint16_t preview_pad = (uint16_t)(left_pad + (has_children ? 24 : 0));
             CLAY(CLAY_SID(r2cs),
                  {
@@ -669,6 +679,13 @@ void tree_widget_render(AppState* state, Db* db) {
             bool suppress_flash = (now - s_flash_selection_changed_us) < TREE_FLASH_SELECTION_GRACE_US;
 
             filter_refresh(tree, state->topic_filter);
+
+            if (!s_row_text_ready) {
+                arena_alloc_init(&s_row_text, 64 * 1024);
+                s_row_text_ready = true;
+            }
+            arena_alloc_reset(&s_row_text);
+
             for (uint32_t i = 0; i < tree->root_count; i++) {
                 render_node(state, tree->roots[i], 0, suppress_flash ? 0 : now);
             }

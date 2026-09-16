@@ -9,15 +9,15 @@
 #include <stdint.h>
 
 #define TOPIC_MAX_CHILDREN 64
-#define TOPIC_PREVIEW_LEN 16384
+#define TOPIC_PAYLOAD_CAP 16384
 
 // 256 x 16 KB = 4 MB per slab, calloc'd so pages stay lazy until touched
-#define TOPIC_NODE_PAYLOAD_PREVIEW_SLAB_CAPACITY 256
+#define TOPIC_NODE_PAYLOAD_SLAB_CAPACITY 256
 
 typedef struct TopicNode {
     struct TopicNode* parent;
     struct TopicNode* children[TOPIC_MAX_CHILDREN];
-    char* last_payload_preview; // TOPIC_PREVIEW_LEN bytes or NULL until the first message
+    uint8_t* last_payload; // first min(len, TOPIC_PAYLOAD_CAP) wire bytes of the latest displayed message
     uint64_t last_message_ts; // microseconds
     uint64_t last_subtree_message_ts; // microseconds; last message anywhere in this node's subtree
     uint64_t last_display_update_us;
@@ -25,7 +25,8 @@ typedef struct TopicNode {
     uint32_t child_count;
     uint32_t message_count;
     uint32_t subtree_message_count;
-    uint32_t last_payload_len; // bytes
+    uint32_t last_payload_len; // wire length of the last message (may exceed last_payload_stored)
+    uint32_t last_payload_stored; // bytes held in last_payload
     float throughput; // computed by main.c for selected topic
     uint8_t last_qos;
     bool has_retained;
@@ -38,14 +39,14 @@ typedef struct TopicNode {
 
 typedef struct {
     PoolAlloc node_pool;
-    PoolAlloc preview_pool; // TOPIC_PREVIEW_LEN blocks, handed out lazily by topic_node_preview_buf()
+    PoolAlloc payload_pool; // TOPIC_PAYLOAD_CAP blocks, handed out lazily by topic_node_payload_set()
     TopicNode* roots[TOPIC_MAX_CHILDREN];
     uint32_t root_count;
     uint32_t total_count;
 } TopicTree;
 
 static_assert(TOPIC_MAX_CHILDREN <= 256, "TOPIC_MAX_CHILDREN must fit a uint8_t scan loop");
-static_assert(TOPIC_PREVIEW_LEN >= 16, "TOPIC_PREVIEW_LEN must hold at least a short preview string");
+static_assert(TOPIC_PAYLOAD_CAP >= 16, "TOPIC_PAYLOAD_CAP must hold at least a short payload");
 
 /**
  * @brief Initialize an empty topic tree backed by a pool allocator.
@@ -81,8 +82,8 @@ TopicNode* topic_tree_find(const TopicTree* tree, const char* topic);
 void topic_node_count_message(TopicNode* node);
 
 /**
- * @brief Forget every message counted on @p node itself: own count, badge strings, preview, retained flag, and the
- *        matching share of the subtree counts up to the root. Children are untouched.
+ * @brief Forget every message counted on @p node itself: own count, badge strings, payload snapshot, retained flag,
+ *        and the matching share of the subtree counts up to the root. Children are untouched.
  * @return The node's message_count before the reset.
  */
 uint32_t topic_node_clear_messages(TopicNode* node);
@@ -91,19 +92,20 @@ uint32_t topic_node_clear_messages(TopicNode* node);
 uint32_t topic_tree_count(const TopicTree* tree);
 
 /**
- * @brief Read-only view of the node's latest payload preview.
- * @return NUL-terminated string; "" when the node has never carried a payload.
+ * @brief Read-only view of the node's latest payload snapshot.
+ * @param len  Receives the number of bytes held (0 when the node has never carried a payload or was cleared).
+ * @return Pointer to the bytes, or NULL when no block was ever allocated. Not NUL-terminated.
  */
-const char* topic_node_preview(const TopicNode* node);
+const uint8_t* topic_node_payload(const TopicNode* node, uint32_t* len);
 
 /**
- * @brief Writable preview buffer of TOPIC_PREVIEW_LEN bytes, allocated from the tree's
- *        preview pool on first use. Only called for nodes that actually receive messages.
+ * @brief Snapshot the first min(@p len, TOPIC_PAYLOAD_CAP) bytes of @p src into the node, allocating its block from
+ *        the tree's payload pool on first use. NULL @p src or @p len == 0 clears the snapshot without allocating.
  */
-char* topic_node_preview_buf(TopicTree* tree, TopicNode* node);
+void topic_node_payload_set(TopicTree* tree, TopicNode* node, const uint8_t* src, uint32_t len);
 
-/** @brief Empty the preview without releasing its block (the node may receive messages again). */
-void topic_node_preview_clear(TopicNode* node);
+/** @brief Drop the snapshot without releasing its block (the node may receive messages again). */
+void topic_node_payload_clear(TopicNode* node);
 
 /**
  * @brief Write the full slash-separated topic path of @p node into @p buf.

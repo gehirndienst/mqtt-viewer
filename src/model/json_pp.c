@@ -58,44 +58,6 @@ static void scan_atom(JsonPP* pp, char* buf, int buf_size) {
     buf[copy_len] = '\0';
 }
 
-static size_t path_push(JsonPP* pp, const char* seg) {
-    size_t mark = pp->path_len;
-    if (!seg || !seg[0]) return mark;
-
-    size_t need_dot = (pp->path_len > 0) ? 1 : 0;
-    size_t seg_len = strlen(seg);
-
-    if (pp->path_len + need_dot + seg_len + 1 > sizeof(pp->path)) return mark;
-    if (need_dot) pp->path[pp->path_len++] = '.';
-
-    memcpy(pp->path + pp->path_len, seg, seg_len);
-    pp->path_len += seg_len;
-    pp->path[pp->path_len] = '\0';
-    return mark;
-}
-
-static void path_pop(JsonPP* pp, size_t mark) {
-    pp->path_len = mark;
-    pp->path[pp->path_len] = '\0';
-}
-
-static void emit_line(JsonPP* pp, const char* key, const char* val, JsonPPValKind kind, bool is_numeric) {
-    if (pp->line_count >= JSON_PP_MAX_LINES) return;
-    JsonPPLine* line = &pp->lines[pp->line_count++];
-    line->depth = pp->depth;
-    util_str_copy(line->key, sizeof(line->key), key);
-    util_str_copy(line->sep, sizeof(line->sep), key[0] ? ": " : "");
-    util_str_copy(line->val, sizeof(line->val), val);
-    line->trail[0] = '\0';
-    line->val_kind = kind;
-    line->is_numeric = is_numeric;
-    util_str_copy(line->dot_path, sizeof(line->dot_path), pp->path);
-}
-
-static void mark_trailing_comma(JsonPP* pp) {
-    if (pp->line_count > 0) util_str_copy(pp->lines[pp->line_count - 1].trail, sizeof(pp->lines[0].trail), ",");
-}
-
 static void format_object_contents(JsonPP* pp) {
     skip_ws(pp);
     while (pp->pos < pp->src_len && pp->src[pp->pos] != '}' && pp->line_count < JSON_PP_MAX_LINES) {
@@ -115,16 +77,16 @@ static void format_object_contents(JsonPP* pp) {
             key[klen - 2] = '\0';
         }
 
-        size_t mark = path_push(pp, key);
+        size_t mark = json_pp_path_push(pp, key);
         int pos_before = pp->pos;
         format_value(pp, key);
         if (pp->pos == pos_before) pp->pos++; // malformed input: always make progress
-        path_pop(pp, mark);
+        json_pp_path_pop(pp, mark);
         skip_ws(pp);
 
         if (pp->pos < pp->src_len && pp->src[pp->pos] == ',') {
             pp->pos++;
-            mark_trailing_comma(pp);
+            json_pp_mark_trailing_comma(pp);
         }
         skip_ws(pp);
     }
@@ -140,35 +102,21 @@ static void format_array_contents(JsonPP* pp) {
 
         char idx_buf[16];
         snprintf(idx_buf, sizeof(idx_buf), "%d", idx);
-        size_t mark = path_push(pp, idx_buf);
+        size_t mark = json_pp_path_push(pp, idx_buf);
         int pos_before = pp->pos;
         format_value(pp, "");
         if (pp->pos == pos_before) pp->pos++;
-        path_pop(pp, mark);
+        json_pp_path_pop(pp, mark);
         idx++;
         skip_ws(pp);
 
         if (pp->pos < pp->src_len && pp->src[pp->pos] == ',') {
             pp->pos++;
-            mark_trailing_comma(pp);
+            json_pp_mark_trailing_comma(pp);
         }
         skip_ws(pp);
     }
     if (pp->pos < pp->src_len && pp->src[pp->pos] == ']') pp->pos++;
-}
-
-static bool quoted_is_numeric(const char* val) {
-    size_t vlen = strlen(val);
-    if (vlen < 2 || val[0] != '"' || val[vlen - 1] != '"') return false;
-
-    char inner[JSON_PP_VAL_LEN];
-    size_t ilen = vlen - 2;
-    if (ilen >= sizeof(inner)) ilen = sizeof(inner) - 1;
-    memcpy(inner, val + 1, ilen);
-    inner[ilen] = '\0';
-    char* endp = NULL;
-    double dv = strtod(inner, &endp);
-    return endp != inner && *endp == '\0' && isfinite(dv);
 }
 
 static void format_value(JsonPP* pp, const char* key) {
@@ -178,44 +126,101 @@ static void format_value(JsonPP* pp, const char* key) {
 
     char c = pp->src[pp->pos];
     if (c == '{') {
-        emit_line(pp, key, "{", JSON_PP_VAL_PUNCT, false);
+        json_pp_emit(pp, key, "{", JSON_PP_VAL_PUNCT, false);
         pp->pos++;
         pp->depth++;
         format_object_contents(pp);
         pp->depth--;
-        emit_line(pp, "", "}", JSON_PP_VAL_PUNCT, false);
+        json_pp_emit(pp, "", "}", JSON_PP_VAL_PUNCT, false);
     } else if (c == '[') {
-        emit_line(pp, key, "[", JSON_PP_VAL_PUNCT, false);
+        json_pp_emit(pp, key, "[", JSON_PP_VAL_PUNCT, false);
         pp->pos++;
         pp->depth++;
         format_array_contents(pp);
         pp->depth--;
-        emit_line(pp, "", "]", JSON_PP_VAL_PUNCT, false);
+        json_pp_emit(pp, "", "]", JSON_PP_VAL_PUNCT, false);
     } else if (c == '"') {
         char val[JSON_PP_VAL_LEN] = "";
         scan_string(pp, val, sizeof(val));
-        emit_line(pp, key, val, JSON_PP_VAL_STRING, quoted_is_numeric(val));
+        json_pp_emit(pp, key, val, JSON_PP_VAL_STRING, json_pp_quoted_is_numeric(val));
     } else {
         char val[JSON_PP_VAL_LEN] = "";
         scan_atom(pp, val, sizeof(val));
         char* endp = NULL;
         double dv = strtod(val, &endp);
-        emit_line(pp, key, val, JSON_PP_VAL_ATOM, endp != val && isfinite(dv));
+        json_pp_emit(pp, key, val, JSON_PP_VAL_ATOM, endp != val && isfinite(dv));
     }
 }
 
-bool json_pp_looks_like_json(const char* src) {
-    if (!src || src[0] == '\0') return false;
+void json_pp_begin(JsonPP* pp) {
+    pp->line_count = 0;
+    pp->depth = 0;
+    pp->path_len = 0;
+    pp->path[0] = '\0';
+    pp->cache_src = NULL;
+    pp->src = NULL;
+    pp->src_len = 0;
+    pp->pos = 0;
+}
+
+void json_pp_emit(JsonPP* pp, const char* key, const char* val, JsonPPValKind kind, bool is_numeric) {
+    if (pp->line_count >= JSON_PP_MAX_LINES) return;
+    JsonPPLine* line = &pp->lines[pp->line_count++];
+    line->depth = pp->depth;
+    util_str_copy(line->key, sizeof(line->key), key);
+    util_str_copy(line->sep, sizeof(line->sep), key[0] ? ": " : "");
+    util_str_copy(line->val, sizeof(line->val), val);
+    line->trail[0] = '\0';
+    line->val_kind = kind;
+    line->is_numeric = is_numeric;
+    util_str_copy(line->dot_path, sizeof(line->dot_path), pp->path);
+}
+
+size_t json_pp_path_push(JsonPP* pp, const char* seg) {
+    size_t mark = pp->path_len;
+    if (!seg || !seg[0]) return mark;
+
+    size_t need_dot = (pp->path_len > 0) ? 1 : 0;
+    size_t seg_len = strlen(seg);
+
+    if (pp->path_len + need_dot + seg_len + 1 > sizeof(pp->path)) return mark;
+    if (need_dot) pp->path[pp->path_len++] = '.';
+
+    memcpy(pp->path + pp->path_len, seg, seg_len);
+    pp->path_len += seg_len;
+    pp->path[pp->path_len] = '\0';
+    return mark;
+}
+
+void json_pp_path_pop(JsonPP* pp, size_t mark) {
+    pp->path_len = mark;
+    pp->path[pp->path_len] = '\0';
+}
+
+void json_pp_mark_trailing_comma(JsonPP* pp) {
+    if (pp->line_count > 0) util_str_copy(pp->lines[pp->line_count - 1].trail, sizeof(pp->lines[0].trail), ",");
+}
+
+bool json_pp_looks_like_json(const char* src, size_t len) {
+    if (!src || len == 0) return false;
     if (src[0] == '{' || src[0] == '[' || src[0] == '"') return true;
 
-    // bare number, optionally surrounded by whitespace; hex is not JSON
-    const char* p = src;
+    // bare number, optionally surrounded by whitespace; hex is not JSON. A number never needs 64 chars.
+    char buf[64];
+    if (len >= sizeof(buf)) return false;
+
+    memcpy(buf, src, len);
+    buf[len] = '\0';
+
+    const char* p = buf;
     while (*p == ' ') p++;
+
     if (*p == '+' || *p == '-') p++;
     if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) return false;
+
     char* end = NULL;
-    double v = strtod(src, &end);
-    if (end == src) return false;
+    double v = strtod(buf, &end);
+    if (end == buf) return false;
     while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r') end++;
     return *end == '\0' && isfinite(v);
 }
@@ -225,21 +230,16 @@ void json_pp_run(JsonPP* pp, const char* src) {
 }
 
 void json_pp_run_len(JsonPP* pp, const char* src, size_t len) {
+    json_pp_begin(pp);
     pp->src = src;
     pp->src_len = len > (size_t)INT32_MAX ? INT32_MAX : (int)len;
-    pp->pos = 0;
-    pp->depth = 0;
-    pp->path_len = 0;
-    pp->path[0] = '\0';
-    pp->line_count = 0;
-    pp->cache_src = NULL;
     format_value(pp, "");
     pp->src = NULL; // cursor is dead outside a run
 }
 
-bool json_pp_run_cached(JsonPP* pp, const char* src, uint64_t key) {
+bool json_pp_run_cached(JsonPP* pp, const char* src, size_t len, uint64_t key) {
     if (pp->cache_src == src && pp->cache_key == key) return false;
-    json_pp_run(pp, src);
+    json_pp_run_len(pp, src, len);
     json_pp_mark_cached(pp, src, key);
     return true;
 }
@@ -317,4 +317,19 @@ bool json_pp_line_string(const JsonPPLine* line, char* out, size_t cap) {
     }
     out[o] = '\0';
     return true;
+}
+
+bool json_pp_quoted_is_numeric(const char* val) {
+    size_t vlen = strlen(val);
+    if (vlen < 2 || val[0] != '"' || val[vlen - 1] != '"') return false;
+
+    char inner[JSON_PP_VAL_LEN];
+
+    size_t ilen = vlen - 2;
+    if (ilen >= sizeof(inner)) ilen = sizeof(inner) - 1;
+    memcpy(inner, val + 1, ilen);
+    inner[ilen] = '\0';
+    char* endp = NULL;
+    double dv = strtod(inner, &endp);
+    return endp != inner && *endp == '\0' && isfinite(dv);
 }

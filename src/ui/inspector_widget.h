@@ -10,7 +10,7 @@
 
 typedef enum {
     VIEW_JSON,
-    VIEW_TEXT,
+    VIEW_CBOR,
     VIEW_HEX,
     VIEW_HISTORY,
 } ViewMode;
@@ -18,8 +18,9 @@ typedef enum {
 /**
  * @brief Render the message inspector panel for the selected topic.
  *
- * Shows payload content with Text/JSON/Hex tabs. Renders an empty state when
- * no topic is selected. Must be called inside an active Clay layout pass.
+ * Shows payload content with JSON/CBOR/Hex/History tabs. JSON falls back to plain text for non-JSON payloads;
+ * CBOR decodes strictly and only while its tab is shown. Renders an empty state when no topic is selected.
+ * Must be called inside an active Clay layout pass.
  */
 void inspector_widget_render(AppState* state);
 

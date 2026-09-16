@@ -60,29 +60,60 @@ TEST(malformed_input_terminates) {
 }
 
 TEST(looks_like_json) {
-    ASSERT_TRUE(json_pp_looks_like_json("{\"a\":1}"));
-    ASSERT_TRUE(json_pp_looks_like_json("[1,2]"));
-    ASSERT_TRUE(json_pp_looks_like_json("\"str\""));
-    ASSERT_TRUE(json_pp_looks_like_json(" 42.5 "));
-    ASSERT_TRUE(json_pp_looks_like_json("-7"));
-    ASSERT_FALSE(json_pp_looks_like_json("0x1F"));
-    ASSERT_FALSE(json_pp_looks_like_json("hello"));
-    ASSERT_FALSE(json_pp_looks_like_json(""));
-    ASSERT_FALSE(json_pp_looks_like_json("12 apples"));
+    ASSERT_TRUE(json_pp_looks_like_json("{\"a\":1}", 7));
+    ASSERT_TRUE(json_pp_looks_like_json("[1,2]", 5));
+    ASSERT_TRUE(json_pp_looks_like_json("\"str\"", 5));
+    ASSERT_TRUE(json_pp_looks_like_json(" 42.5 ", 6));
+    ASSERT_TRUE(json_pp_looks_like_json("-7", 2));
+    ASSERT_FALSE(json_pp_looks_like_json("0x1F", 4));
+    ASSERT_FALSE(json_pp_looks_like_json("hello", 5));
+    ASSERT_FALSE(json_pp_looks_like_json("", 0));
+    ASSERT_FALSE(json_pp_looks_like_json("12 apples", 9));
+    ASSERT_TRUE(json_pp_looks_like_json("42junk", 2));
+    ASSERT_FALSE(json_pp_looks_like_json("42junk", 6));
+    ASSERT_FALSE(json_pp_looks_like_json("\xa1\x65speed\x0a", 8));
 }
 
 TEST(cache_skips_rerun_until_key_changes) {
     static const char src[] = "{\"a\": 1}";
-    ASSERT_TRUE(json_pp_run_cached(&s_pp, src, 100));
-    ASSERT_FALSE(json_pp_run_cached(&s_pp, src, 100));
+    ASSERT_TRUE(json_pp_run_cached(&s_pp, src, 8, 100));
+    ASSERT_FALSE(json_pp_run_cached(&s_pp, src, 8, 100));
     s_pp.lines[1].val[0] = 'X'; // would be overwritten by a rerun
-    ASSERT_FALSE(json_pp_run_cached(&s_pp, src, 100));
+    ASSERT_FALSE(json_pp_run_cached(&s_pp, src, 8, 100));
     ASSERT_EQ(s_pp.lines[1].val[0], 'X');
-    ASSERT_TRUE(json_pp_run_cached(&s_pp, src, 101));
+    ASSERT_TRUE(json_pp_run_cached(&s_pp, src, 8, 101));
     ASSERT_STR_EQ(s_pp.lines[1].val, "1");
     // an uncached run drops the mark
     json_pp_run(&s_pp, src);
-    ASSERT_TRUE(json_pp_run_cached(&s_pp, src, 101));
+    ASSERT_TRUE(json_pp_run_cached(&s_pp, src, 8, 101));
+}
+
+TEST(emit_helpers_build_lines_like_the_formatter) {
+    json_pp_begin(&s_pp);
+    ASSERT_EQ(s_pp.line_count, 0);
+    json_pp_emit(&s_pp, "", "{", JSON_PP_VAL_PUNCT, false);
+    s_pp.depth++;
+    size_t mark = json_pp_path_push(&s_pp, "speed");
+    json_pp_emit(&s_pp, "speed", "10", JSON_PP_VAL_ATOM, true);
+    json_pp_path_pop(&s_pp, mark);
+    json_pp_mark_trailing_comma(&s_pp);
+    mark = json_pp_path_push(&s_pp, "unit");
+    json_pp_emit(&s_pp, "unit", "\"km/h\"", JSON_PP_VAL_STRING, false);
+    json_pp_path_pop(&s_pp, mark);
+    s_pp.depth--;
+    json_pp_emit(&s_pp, "", "}", JSON_PP_VAL_PUNCT, false);
+
+    ASSERT_EQ(s_pp.line_count, 4);
+    ASSERT_STR_EQ(s_pp.lines[1].key, "speed");
+    ASSERT_STR_EQ(s_pp.lines[1].sep, ": ");
+    ASSERT_STR_EQ(s_pp.lines[1].dot_path, "speed");
+    ASSERT_STR_EQ(s_pp.lines[1].trail, ",");
+    ASSERT_EQ(s_pp.lines[1].depth, 1);
+    ASSERT_STR_EQ(s_pp.lines[2].trail, "");
+    ASSERT_STR_EQ(s_pp.lines[3].dot_path, "");
+    double v = 0;
+    ASSERT_TRUE(json_pp_number_at(&s_pp, "speed", &v));
+    ASSERT_EQ(v, 10.0);
 }
 
 TEST(run_len_stops_at_length_not_nul) {
@@ -159,6 +190,7 @@ int main(void) {
     RUN(malformed_input_terminates);
     RUN(looks_like_json);
     RUN(cache_skips_rerun_until_key_changes);
+    RUN(emit_helpers_build_lines_like_the_formatter);
     RUN(run_len_stops_at_length_not_nul);
     RUN(line_number_handles_atoms_and_numeric_strings);
     RUN(line_string_unquotes_and_unescapes);

@@ -101,7 +101,7 @@ typedef struct {
     bool publish_field_all_selected; // ctrl A
 
     // Inspector state
-    int inspector_view; // active ViewMode tab (VIEW_JSON/TEXT/HEX/HISTORY)
+    int inspector_view; // active ViewMode tab (VIEW_JSON/CBOR/HEX/HISTORY)
 
     // Frozen inspector: pins the Inspector pane to one specific historical message
     bool inspector_frozen;

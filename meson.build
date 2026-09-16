@@ -41,6 +41,7 @@ src_model = files(
     'src/model/csv_export.c',
     'src/model/util.c',
     'src/model/json_pp.c',
+    'src/model/cbor_pp.c',
 )
 
 src_core = files(

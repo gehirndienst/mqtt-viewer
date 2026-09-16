@@ -137,7 +137,7 @@ TEST(count_message_on_intermediate_node) {
     topic_tree_destroy(&tree);
 }
 
-TEST(preview_allocated_lazily) {
+TEST(payload_snapshot_lazy_and_capped) {
     TopicTree tree;
     topic_tree_init(&tree, 256);
     TopicNode* leaf = topic_tree_insert(&tree, "home/kitchen/temp");
@@ -145,28 +145,48 @@ TEST(preview_allocated_lazily) {
     ASSERT_NOT_NULL(leaf);
     ASSERT_NOT_NULL(mid);
 
-    // No block until someone asks for a writable buffer; the read view is always a valid string
-    ASSERT_NULL(leaf->last_payload_preview);
-    ASSERT_STR_EQ(topic_node_preview(leaf), "");
-    ASSERT_EQ(pool_alloc_used(&tree.preview_pool), 0);
+    // No block until the first payload; the read view is NULL with length 0
+    uint32_t len = 99;
+    ASSERT_NULL(leaf->last_payload);
+    ASSERT_NULL(topic_node_payload(leaf, &len));
+    ASSERT_EQ(len, 0);
+    ASSERT_EQ(pool_alloc_used(&tree.payload_pool), 0);
 
-    char* buf = topic_node_preview_buf(&tree, leaf);
-    ASSERT_NOT_NULL(buf);
-    ASSERT_EQ(pool_alloc_used(&tree.preview_pool), 1);
-    strcpy(buf, "21.5");
-    ASSERT_STR_EQ(topic_node_preview(leaf), "21.5");
+    // Binary bytes survive verbatim - a CBOR map with a 0x0A and a 0x00 inside
+    static const uint8_t cbor[] = {0xa1, 0x65, 's', 'p', 'e', 'e', 'd', 0x0a, 0x00};
+    topic_node_payload_set(&tree, leaf, cbor, sizeof(cbor));
+    const uint8_t* got = topic_node_payload(leaf, &len);
+    ASSERT_NOT_NULL(got);
+    ASSERT_EQ(len, sizeof(cbor));
+    ASSERT_EQ(memcmp(got, cbor, sizeof(cbor)), 0);
+    ASSERT_EQ(pool_alloc_used(&tree.payload_pool), 1);
 
-    // Second request hands back the same block; intermediate node still has none
-    ASSERT_EQ(topic_node_preview_buf(&tree, leaf), buf);
-    ASSERT_EQ(pool_alloc_used(&tree.preview_pool), 1);
-    ASSERT_NULL(mid->last_payload_preview);
+    // A second message reuses the block; the intermediate node never gets one
+    static const uint8_t small[] = {'4', '2'};
+    topic_node_payload_set(&tree, leaf, small, 2);
+    ASSERT_EQ(topic_node_payload(leaf, &len), got);
+    ASSERT_EQ(len, 2);
+    ASSERT_EQ(pool_alloc_used(&tree.payload_pool), 1);
+    ASSERT_NULL(mid->last_payload);
 
-    // Clearing empties the text but keeps the block
-    topic_node_preview_clear(leaf);
-    ASSERT_STR_EQ(topic_node_preview(leaf), "");
-    ASSERT_EQ(leaf->last_payload_preview, buf);
-    topic_node_preview_clear(mid); // no-op on a node without a block
-    ASSERT_NULL(mid->last_payload_preview);
+    // Oversized payloads are cut at the cap
+    static uint8_t big[TOPIC_PAYLOAD_CAP + 1000];
+    memset(big, 'x', sizeof(big));
+    topic_node_payload_set(&tree, leaf, big, sizeof(big));
+    topic_node_payload(leaf, &len);
+    ASSERT_EQ(len, TOPIC_PAYLOAD_CAP);
+
+    // Clearing drops the bytes but keeps the block; NULL or zero-length input also clears
+    topic_node_payload_clear(leaf);
+    ASSERT_EQ(topic_node_payload(leaf, &len), got);
+    ASSERT_EQ(len, 0);
+    topic_node_payload_set(&tree, leaf, small, 2);
+    topic_node_payload_set(&tree, leaf, NULL, 0);
+    topic_node_payload(leaf, &len);
+    ASSERT_EQ(len, 0);
+    topic_node_payload_clear(mid); // no-op on a node without a block
+    ASSERT_NULL(mid->last_payload);
+    ASSERT_EQ(pool_alloc_used(&tree.payload_pool), 1);
 
     topic_tree_destroy(&tree);
 }
@@ -181,12 +201,14 @@ TEST(clear_messages_resets_node_and_ancestor_counts) {
     for (int i = 0; i < 3; i++) topic_node_count_message(speed);
     topic_node_count_message(rpm);
     speed->has_retained = true;
-    strcpy(topic_node_preview_buf(&tree, speed), "120");
+    topic_node_payload_set(&tree, speed, (const uint8_t*)"120", 3);
 
     ASSERT_EQ(topic_node_clear_messages(speed), 3);
     ASSERT_EQ(speed->message_count, 0);
     ASSERT_STR_EQ(speed->msg_count_str, "");
-    ASSERT_STR_EQ(topic_node_preview(speed), "");
+    uint32_t plen = 1;
+    topic_node_payload(speed, &plen);
+    ASSERT_EQ(plen, 0);
     ASSERT_FALSE(speed->has_retained);
     ASSERT_EQ(speed->subtree_message_count, 0);
     ASSERT_EQ(engine->subtree_message_count, 1); // rpm's message survives
@@ -211,7 +233,7 @@ int main(void) {
     RUN(insert_multiple_roots);
     RUN(count_message_bumps_node_and_ancestors);
     RUN(count_message_on_intermediate_node);
-    RUN(preview_allocated_lazily);
+    RUN(payload_snapshot_lazy_and_capped);
     RUN(clear_messages_resets_node_and_ancestor_counts);
     printf("All topic_tree tests passed\n");
     return 0;

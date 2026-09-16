@@ -51,10 +51,28 @@ typedef struct {
 } JsonPP;
 
 /**
- * @brief True when @p src is worth feeding to the formatter: starts an object, array or string, or is a bare
- *        number. Everything else should be shown as plain text.
+ * @name Line-model primitives
+ * Sibling decoders (cbor_pp) build the same line tree with these instead of the JSON tokenizer. Callers manage
+ * pp->depth themselves around container contents.
+ * @{
  */
-bool json_pp_looks_like_json(const char* src);
+/** @brief Empty pp->lines, reset depth and dot path, drop the cache mark. */
+void json_pp_begin(JsonPP* pp);
+/** @brief Append one line at the current depth and dot path; silently dropped once JSON_PP_MAX_LINES is reached. */
+void json_pp_emit(JsonPP* pp, const char* key, const char* val, JsonPPValKind kind, bool is_numeric);
+/** @brief Append ".seg" to the dot path (no-op for ""). @return Mark for json_pp_path_pop(). */
+size_t json_pp_path_push(JsonPP* pp, const char* seg);
+/** @brief Restore the dot path to @p mark. */
+void json_pp_path_pop(JsonPP* pp, size_t mark);
+/** @brief Set trail = "," on the most recently emitted line. */
+void json_pp_mark_trailing_comma(JsonPP* pp);
+/** @} */
+
+/**
+ * @brief True when the first @p len bytes of @p src are worth feeding to the formatter: they start an object, array
+ *        or string, or are a bare number. Everything else should be shown as plain text. Never reads past @p len.
+ */
+bool json_pp_looks_like_json(const char* src, size_t len);
 
 /** @brief Format @p src into pp->lines, replacing whatever was there. Drops the cache mark. */
 void json_pp_run(JsonPP* pp, const char* src);
@@ -63,13 +81,13 @@ void json_pp_run(JsonPP* pp, const char* src);
 void json_pp_run_len(JsonPP* pp, const char* src, size_t len);
 
 /**
- * @brief Like json_pp_run(), but a no-op while (@p src, @p key) equal the previous run's.
+ * @brief Like json_pp_run_len(), but a no-op while (@p src, @p key) equal the previous run's.
  *
- * @p src must be stable storage (a node preview, a history slot, a frozen message) and @p key must change whenever
- * its contents do - a message timestamp works.
+ * @p src must be stable storage (a node payload snapshot, a history record, a frozen message) and @p key must change
+ * whenever its contents do - a message timestamp works.
  * @return true if the lines were rebuilt.
  */
-bool json_pp_run_cached(JsonPP* pp, const char* src, uint64_t key);
+bool json_pp_run_cached(JsonPP* pp, const char* src, size_t len, uint64_t key);
 
 /** @brief Declare pp->lines to be the formatted form of (@p src, @p key) - after restoring them by hand. */
 void json_pp_mark_cached(JsonPP* pp, const char* src, uint64_t key);
@@ -96,5 +114,8 @@ bool json_pp_number_at(const JsonPP* pp, const char* dot_path, double* out);
  * @return false if the line is not a string.
  */
 bool json_pp_line_string(const JsonPPLine* line, char* out, size_t cap);
+
+/** @brief True when @p val is a quoted string ("...") whose whole contents parse as a finite number. */
+bool json_pp_quoted_is_numeric(const char* val);
 
 #endif

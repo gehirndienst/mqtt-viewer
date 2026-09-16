@@ -11,6 +11,7 @@
 #include "clay.h"
 #include "raylib.h"
 
+#include "model/cbor_pp.h"
 #include "model/json_pp.h"
 #include "model/message_buf.h"
 #include "model/util.h"
@@ -23,6 +24,8 @@
 #define HISTORY_MAX_ROWS 200
 #define JSON_INDENT_STEP 16
 #define PP_GUTTER_W 18
+#define TEXT_VIEW_MAX 4000
+#define HEX_LINE_BUF 80
 
 typedef enum {
     DIFF_UNCHANGED,
@@ -36,20 +39,20 @@ typedef struct {
     DiffState state;
 } DiffMergedEntry;
 
-
-// Pretty-printer
+// pretty-printers
 static JsonPP s_pp;
 static JsonPP s_pp_prev;
+static JsonPP s_cbor_pp;
 
 // action button flash
-
 static int s_copied_btn = -1;
 static float s_copied_timer = 0.0f;
 
 // Strategy: line-wise LCS over the JSON pp output. The diff baseline is the previous payload preview;
 // when a new message arrives reprint the previous preview build line-text reps for both previous and current run an LCS
 // to mark each current line as UNCHANGED/ADDED and emit synthetic REMOVED rows for prev-only lines
-static char s_diff_prev_preview[TOPIC_PREVIEW_LEN];
+static uint8_t s_diff_prev_payload[TOPIC_PAYLOAD_CAP];
+static uint32_t s_diff_prev_len = 0;
 static const TopicNode* s_diff_prev_node = NULL;
 static uint64_t s_diff_prev_ts = 0;
 static char s_diff_prev_text[DIFF_MAX_LINES][DIFF_LINE_LEN];
@@ -69,39 +72,40 @@ static float s_hist_copied_timer = 0.0f;
 static uint64_t s_hist_expanded_ts = 0;
 static TopicNode* s_last_hist_node = NULL;
 
-static void render_text_view(const char* src) {
-    if (src[0] == '\0') {
-        CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
-        return;
-    }
-    int total_len = (int)strlen(src);
-    int display_len = total_len > 4000 ? 4000 : total_len;
-    Clay_String ts = {.length = display_len, .chars = src};
-    CLAY_TEXT(ts, THEME_TEXT_MONO);
-    if (total_len > 4000) {
-        CLAY_TEXT(CLAY_STRING("... (use JSON tab for large payloads)"), THEME_TEXT_SMALL);
-    }
+// Two sanitized copies: Clay copies a Clay_String's chars at draw time, after layout, so a clipboard
+// handler running post-layout must not write the buffer the laid-out text still points at
+static char s_text_scratch[TOPIC_PAYLOAD_CAP + 1]; // layout only
+static char s_clip_scratch[TOPIC_PAYLOAD_CAP + 1]; // clipboard only, never handed to Clay
+
+static char s_inspector_topic[CHART_TOPIC_LEN]; // updated each frame from selected_topic
+
+static const char* payload_text_into(char* dst, size_t dst_cap, const uint8_t* src, uint32_t len, uint32_t cap) {
+    if ((size_t)cap + 1 > dst_cap) cap = (uint32_t)(dst_cap - 1);
+    if (len > cap) len = cap;
+    util_preview_sanitize(dst, (size_t)cap + 1, src, len);
+    return dst;
 }
 
-// hexdump line widthfits in < 80 chars
-#define HEX_LINE_BUF 80
+static const char* payload_text(const uint8_t* src, uint32_t len, uint32_t cap) {
+    return payload_text_into(s_text_scratch, sizeof(s_text_scratch), src, len, cap);
+}
 
 // Format a single 16-byte hex-dump line ("offset  hex bytes  |ascii|") into buf without a trailing newline
-static int format_hex_line(char* buf, int buf_size, const char* src, int len, int offset) {
-    int n = len - offset;
+static int format_hex_line(char* buf, int buf_size, const uint8_t* src, uint32_t len, uint32_t offset) {
+    uint32_t n = len - offset;
     if (n > 16) n = 16;
     int pos = 0;
     pos += snprintf(buf + pos, buf_size - pos, "%08x  ", offset);
-    for (int j = 0; j < 16; j++) {
+    for (uint32_t j = 0; j < 16; j++) {
         if (j < n)
-            pos += snprintf(buf + pos, buf_size - pos, "%02x ", (unsigned char)src[offset + j]);
+            pos += snprintf(buf + pos, buf_size - pos, "%02x ", src[offset + j]);
         else
             pos += snprintf(buf + pos, buf_size - pos, "   ");
         if (j == 7) pos += snprintf(buf + pos, buf_size - pos, " ");
     }
     pos += snprintf(buf + pos, buf_size - pos, " |");
-    for (int j = 0; j < n && pos < buf_size - 2; j++) {
-        unsigned char c = (unsigned char)src[offset + j];
+    for (uint32_t j = 0; j < n && pos < buf_size - 2; j++) {
+        uint8_t c = src[offset + j];
         buf[pos++] = (c >= 0x20 && c < 0x7f) ? (char)c : '.';
     }
     buf[pos++] = '|';
@@ -109,31 +113,10 @@ static int format_hex_line(char* buf, int buf_size, const char* src, int len, in
     return pos;
 }
 
-static void render_hex_view(const char* src) {
-    int len = (int)strlen(src);
-    if (len == 0) {
-        CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
-        return;
-    }
-
-    // cap at 64 lines (1024 bytes shown)
-    static char hex_lines[64][HEX_LINE_BUF];
-    int line_count = 0;
-    for (int offset = 0; offset < len && line_count < 64; offset += 16) {
-        format_hex_line(hex_lines[line_count], HEX_LINE_BUF, src, len, offset);
-        line_count++;
-    }
-
-    for (int i = 0; i < line_count; i++) {
-        Clay_String hs = ui_utils_clay_string(hex_lines[i]);
-        CLAY_TEXT(hs, THEME_TEXT_MONO);
-    }
-}
-
-static void build_hex_dump_str(const char* src, int len, char* out, int out_size) {
+static void build_hex_dump_str(const uint8_t* src, uint32_t len, char* out, int out_size) {
     int pos = 0;
     char line[HEX_LINE_BUF];
-    for (int offset = 0; offset < len; offset += 16) {
+    for (uint32_t offset = 0; offset < len; offset += 16) {
         int n = format_hex_line(line, sizeof(line), src, len, offset);
         if (pos + n + 1 >= out_size) break; // leave room for '\n' and terminator
         memcpy(out + pos, line, (size_t)n);
@@ -143,8 +126,6 @@ static void build_hex_dump_str(const char* src, int len, char* out, int out_size
     if (pos > 0 && out[pos - 1] == '\n') pos--;
     out[pos] = '\0';
 }
-
-static char s_inspector_topic[CHART_TOPIC_LEN]; // updated each frame from selected_topic
 
 // Start charting the numeric value on pretty-printed line
 static void chart_add_from_line(AppState* state, int line_idx) {
@@ -164,6 +145,18 @@ static void chart_add_from_line(AppState* state, int line_idx) {
             chart_series_init(&state->chart_series[i], s_inspector_topic, line->dot_path);
             return;
         }
+    }
+}
+
+static Clay_Color pp_val_color(JsonPPValKind kind) {
+    switch (kind) {
+        case JSON_PP_VAL_STRING:
+            return THEME_GREEN;
+        case JSON_PP_VAL_ATOM:
+            return THEME_PINK;
+        case JSON_PP_VAL_PUNCT:
+        default:
+            return THEME_TEXT_MUTED;
     }
 }
 
@@ -217,19 +210,7 @@ static void diff_compute(int prev_n, int curr_n, const int* curr_depth) {
     for (int k = 0; k < tc; k++) s_diff_merged[k] = tmp[tc - 1 - k];
 }
 
-static Clay_Color pp_val_color(JsonPPValKind kind) {
-    switch (kind) {
-        case JSON_PP_VAL_STRING:
-            return THEME_GREEN;
-        case JSON_PP_VAL_ATOM:
-            return THEME_PINK;
-        case JSON_PP_VAL_PUNCT:
-        default:
-            return THEME_TEXT_MUTED;
-    }
-}
-
-static void render_pp_line(const JsonPPLine* line, int line_idx, DiffState st) {
+static void render_pp_line(const JsonPPLine* line, int line_idx, DiffState st, bool chartable) {
     uint16_t left_pad = (uint16_t)(line->depth * JSON_INDENT_STEP);
 
     Clay_Color key_c = (st == DIFF_ADDED) ? THEME_DIFF_ADDED : THEME_LIGHT_BLUE;
@@ -252,7 +233,7 @@ static void render_pp_line(const JsonPPLine* line, int line_idx, DiffState st) {
                             .childAlignment = {.x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_CENTER}},
                  .border = {.width = {.right = 1}, .color = THEME_BORDER},
              }) {
-            if (line->is_numeric) {
+            if (chartable && line->is_numeric) {
                 CLAY(CLAY_IDI("ChartAdd", (uint32_t)line_idx),
                      {
                          .layout = {.sizing = {CLAY_SIZING_FIXED(13), CLAY_SIZING_FIXED(13)},
@@ -335,21 +316,82 @@ static void render_pp_removed(int merged_idx, int prev_idx) {
     }
 }
 
-static void render_json_diff_view(TopicNode* node) {
-    const char* src = topic_node_preview(node);
-    if (src[0] == '\0') {
+static void render_text_view(const uint8_t* src, uint32_t len) {
+    if (len == 0) {
         CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
         return;
     }
-    if (!json_pp_looks_like_json(src)) {
-        // Diff is JSON-only by design - fallback to plain text view for non-JSON payloads
-        render_text_view(src);
+    Clay_String ts = ui_utils_clay_string(payload_text(src, len, TEXT_VIEW_MAX));
+    CLAY_TEXT(ts, THEME_TEXT_MONO);
+    if (len > TEXT_VIEW_MAX) {
+        CLAY_TEXT(CLAY_STRING("... (use JSON tab for large payloads)"), THEME_TEXT_SMALL);
+    }
+}
+
+static void render_hex_view(const uint8_t* src, uint32_t len) {
+    if (len == 0) {
+        CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
         return;
     }
 
-    json_pp_run_cached(&s_pp, src, node->last_display_update_us);
+    // cap at 64 lines (1024 bytes shown)
+    static char hex_lines[64][HEX_LINE_BUF];
+    int line_count = 0;
+    for (uint32_t offset = 0; offset < len && line_count < 64; offset += 16) {
+        format_hex_line(hex_lines[line_count], HEX_LINE_BUF, src, len, offset);
+        line_count++;
+    }
+
+    for (int i = 0; i < line_count; i++) {
+        Clay_String hs = ui_utils_clay_string(hex_lines[i]);
+        CLAY_TEXT(hs, THEME_TEXT_MONO);
+    }
+    if (len > 1024) {
+        CLAY_TEXT(CLAY_STRING("... (first 1024 bytes shown)"), THEME_TEXT_SMALL);
+    }
+}
+
+static void render_json_view(const uint8_t* src, uint32_t len, uint64_t key) {
+    if (len == 0) {
+        CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
+        return;
+    }
+    if (!json_pp_looks_like_json((const char*)src, len)) {
+        render_text_view(src, len);
+        return;
+    }
+
+    json_pp_run_cached(&s_pp, (const char*)src, len, key);
+
     if (s_pp.line_count == 0) {
-        render_text_view(src);
+        render_text_view(src, len);
+        return;
+    }
+
+    for (int li = 0; li < s_pp.line_count; li++) {
+        render_pp_line(&s_pp.lines[li], li, DIFF_UNCHANGED, true);
+    }
+    if (s_pp.line_count >= JSON_PP_MAX_LINES) {
+        CLAY_TEXT(CLAY_STRING("(output truncated at 2048 lines)"), THEME_TEXT_SMALL);
+    }
+}
+
+static void render_json_diff_view(TopicNode* node) {
+    uint32_t len = 0;
+    const uint8_t* src = topic_node_payload(node, &len);
+    if (len == 0) {
+        CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
+        return;
+    }
+    if (!json_pp_looks_like_json((const char*)src, len)) {
+        // Diff is JSON-only by design - fallback to plain text view for non-JSON payloads
+        render_text_view(src, len);
+        return;
+    }
+
+    json_pp_run_cached(&s_pp, (const char*)src, len, node->last_display_update_us);
+    if (s_pp.line_count == 0) {
+        render_text_view(src, len);
         return;
     }
 
@@ -360,10 +402,8 @@ static void render_json_diff_view(TopicNode* node) {
         // First frame on this node - establish baseline, render plain
         s_diff_prev_node = node;
         s_diff_prev_ts = node->last_message_ts;
-        size_t plen = strlen(src);
-        if (plen >= sizeof(s_diff_prev_preview)) plen = sizeof(s_diff_prev_preview) - 1;
-        memcpy(s_diff_prev_preview, src, plen);
-        s_diff_prev_preview[plen] = '\0';
+        memcpy(s_diff_prev_payload, src, len);
+        s_diff_prev_len = len;
         s_diff_merged_count = 0;
         s_diff_prev_text_count = 0;
     } else if (ts_advanced) {
@@ -375,7 +415,7 @@ static void render_json_diff_view(TopicNode* node) {
         }
 
         // Format the previous payload into its own instance so the current lines stay put
-        json_pp_run(&s_pp_prev, s_diff_prev_preview);
+        json_pp_run_len(&s_pp_prev, (const char*)s_diff_prev_payload, s_diff_prev_len);
         int prev_n = s_pp_prev.line_count > DIFF_MAX_LINES ? DIFF_MAX_LINES : s_pp_prev.line_count;
         for (int i = 0; i < prev_n; i++) {
             diff_format_line(&s_pp_prev.lines[i], s_diff_prev_text[i]);
@@ -385,11 +425,9 @@ static void render_json_diff_view(TopicNode* node) {
 
         diff_compute(prev_n, curr_n, curr_depth);
 
-        // Update baseline to the current preview
-        size_t plen = strlen(src);
-        if (plen >= sizeof(s_diff_prev_preview)) plen = sizeof(s_diff_prev_preview) - 1;
-        memcpy(s_diff_prev_preview, src, plen);
-        s_diff_prev_preview[plen] = '\0';
+        // Update baseline to the current payload
+        memcpy(s_diff_prev_payload, src, len);
+        s_diff_prev_len = len;
         s_diff_prev_ts = node->last_message_ts;
     }
     // else: cached merged sequence from prior frame remains valid
@@ -397,7 +435,7 @@ static void render_json_diff_view(TopicNode* node) {
     // rndr
     if (s_diff_merged_count == 0) {
         for (int li = 0; li < s_pp.line_count; li++) {
-            render_pp_line(&s_pp.lines[li], li, DIFF_UNCHANGED);
+            render_pp_line(&s_pp.lines[li], li, DIFF_UNCHANGED, true);
         }
     } else {
         for (int k = 0; k < s_diff_merged_count; k++) {
@@ -405,11 +443,11 @@ static void render_json_diff_view(TopicNode* node) {
             if (e->state == DIFF_REMOVED) {
                 render_pp_removed(k, e->prev_idx);
             } else {
-                render_pp_line(&s_pp.lines[e->curr_idx], e->curr_idx, e->state);
+                render_pp_line(&s_pp.lines[e->curr_idx], e->curr_idx, e->state, true);
             }
         }
         for (int li = DIFF_MAX_LINES; li < s_pp.line_count; li++) {
-            render_pp_line(&s_pp.lines[li], li, DIFF_UNCHANGED);
+            render_pp_line(&s_pp.lines[li], li, DIFF_UNCHANGED, true);
         }
     }
     if (s_pp.line_count >= JSON_PP_MAX_LINES) {
@@ -417,27 +455,21 @@ static void render_json_diff_view(TopicNode* node) {
     }
 }
 
-static void render_json_view(const char* src, uint64_t key) {
-    if (src[0] == '\0') {
+// Chart capture is JSON-only, so CBOR lines get no [+] - a series on a CBOR field would never fill
+static void render_cbor_view(const uint8_t* src, uint32_t len, uint64_t key) {
+    if (len == 0) {
         CLAY_TEXT(CLAY_STRING("(no payload)"), THEME_TEXT_SMALL);
         return;
     }
-    if (!json_pp_looks_like_json(src)) {
-        render_text_view(src);
+    if (!cbor_pp_run_cached(&s_cbor_pp, src, len, key)) {
+        CLAY_TEXT(CLAY_STRING("(not a well-formed CBOR item - showing as text)"), THEME_TEXT_SMALL);
+        render_text_view(src, len);
         return;
     }
-
-    json_pp_run_cached(&s_pp, src, key);
-
-    if (s_pp.line_count == 0) {
-        render_text_view(src);
-        return;
+    for (int li = 0; li < s_cbor_pp.line_count; li++) {
+        render_pp_line(&s_cbor_pp.lines[li], li, DIFF_UNCHANGED, false);
     }
-
-    for (int li = 0; li < s_pp.line_count; li++) {
-        render_pp_line(&s_pp.lines[li], li, DIFF_UNCHANGED);
-    }
-    if (s_pp.line_count >= JSON_PP_MAX_LINES) {
+    if (s_cbor_pp.line_count >= JSON_PP_MAX_LINES) {
         CLAY_TEXT(CLAY_STRING("(output truncated at 2048 lines)"), THEME_TEXT_SMALL);
     }
 }
@@ -560,7 +592,7 @@ static void render_history_view(AppState* state, TopicNode* node) {
             }
 
             // Expanded payload
-            if (expanded && r->preview[0] != '\0') {
+            if (expanded && r->payload_len > 0) {
                 CLAY(CLAY_IDI("HEC", (uint32_t)ri),
                      {
                          .layout =
@@ -572,13 +604,11 @@ static void render_history_view(AppState* state, TopicNode* node) {
                              },
                          .backgroundColor = THEME_BG_HISTORY_DETAIL,
                      }) {
-                    const char* src = r->preview;
-                    bool is_json = json_pp_looks_like_json(src);
-                    if (is_json) json_pp_run_cached(&s_pp, src, r->timestamp_us);
+                    const uint8_t* src = r->payload;
+                    bool is_json = json_pp_looks_like_json((const char*)src, r->payload_len);
+                    if (is_json) json_pp_run_cached(&s_pp, (const char*)src, r->payload_len, r->timestamp_us);
                     if (!is_json || s_pp.line_count == 0) {
-                        int raw_len = (int)strlen(src);
-                        if (raw_len > 4000) raw_len = 4000;
-                        Clay_String raw_cs = {.length = raw_len, .chars = src};
+                        Clay_String raw_cs = ui_utils_clay_string(payload_text(src, r->payload_len, TEXT_VIEW_MAX));
                         CLAY_TEXT(raw_cs,
                                   CLAY_TEXT_CONFIG({
                                       .fontSize = 12,
@@ -660,8 +690,9 @@ static void render_history_view(AppState* state, TopicNode* node) {
 
         // Copy button - copies full preview to clipboard
         if (Clay_PointerOver(hc_eid) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            if (r->preview[0] != '\0') {
-                SetClipboardText(r->preview);
+            if (r->payload_len > 0) {
+                SetClipboardText(payload_text_into(s_clip_scratch, sizeof(s_clip_scratch), r->payload, r->payload_len,
+                                                   TOPIC_PAYLOAD_CAP));
                 s_hist_copied_ts = r->timestamp_us;
                 ui_utils_flash_start(&s_hist_copied_timer);
             }
@@ -683,6 +714,12 @@ static void render_frozen_inspector(AppState* state) {
     util_fmt_hhmmss(state->frozen_message.timestamp_us, ts_buf, sizeof(ts_buf));
     snprintf(meta, sizeof(meta), "%s \xc2\xb7 QoS %u%s", ts_buf, (unsigned)state->frozen_message.qos,
              state->frozen_message.retained ? " \xc2\xb7 Retained" : "");
+
+    // Search results carry only the sanitized preview (db_search_messages() leaves payload NULL)
+    const MessageRecord* fzm = &state->frozen_message;
+    bool fz_raw = (fzm->payload && fzm->payload_len > 0);
+    const uint8_t* fz = fz_raw ? fzm->payload : (const uint8_t*)fzm->preview;
+    uint32_t fz_len = fz_raw ? fzm->payload_len : (uint32_t)strlen(fzm->preview);
 
     CLAY(CLAY_ID("Inspector"),
          {
@@ -769,8 +806,8 @@ static void render_frozen_inspector(AppState* state) {
                      },
                  .border = {.width = {.bottom = 1}, .color = THEME_BORDER},
              }) {
-            const char* tab_names[] = {"JSON", "Text", "Hex"};
-            ViewMode modes[] = {VIEW_JSON, VIEW_TEXT, VIEW_HEX};
+            const char* tab_names[] = {"JSON", "CBOR", "Hex"};
+            ViewMode modes[] = {VIEW_JSON, VIEW_CBOR, VIEW_HEX};
             for (int t = 0; t < 3; t++) {
                 bool active = (state->inspector_view == (int)modes[t]);
                 CLAY(CLAY_IDI("FTab", (uint32_t)t), {
@@ -810,13 +847,13 @@ static void render_frozen_inspector(AppState* state) {
              }) {
             switch (state->inspector_view) {
                 case VIEW_JSON:
-                    render_json_view(state->frozen_message.preview, state->frozen_message.timestamp_us);
+                    render_json_view(fz, fz_len, state->frozen_message.timestamp_us);
                     break;
-                case VIEW_TEXT:
-                    render_text_view(state->frozen_message.preview);
+                case VIEW_CBOR:
+                    render_cbor_view(fz, fz_len, state->frozen_message.timestamp_us);
                     break;
                 case VIEW_HEX:
-                    render_hex_view(state->frozen_message.preview);
+                    render_hex_view(fz, fz_len);
                     break;
                 case VIEW_HISTORY:
                     break; // unreachable - coerced to VIEW_JSON above
@@ -877,11 +914,11 @@ static void render_frozen_inspector(AppState* state) {
                 case 0: // Copy Payload
                     if (state->inspector_view == VIEW_HEX) {
                         static char hex_copy_buf[5248];
-                        build_hex_dump_str(state->frozen_message.preview, (int)strlen(state->frozen_message.preview),
-                                           hex_copy_buf, sizeof(hex_copy_buf));
+                        build_hex_dump_str(fz, fz_len, hex_copy_buf, sizeof(hex_copy_buf));
                         SetClipboardText(hex_copy_buf);
                     } else {
-                        SetClipboardText(state->frozen_message.preview);
+                        SetClipboardText(
+                            payload_text_into(s_clip_scratch, sizeof(s_clip_scratch), fz, fz_len, TOPIC_PAYLOAD_CAP));
                     }
                     break;
                 case 1: // Copy Topic
@@ -908,6 +945,9 @@ void inspector_widget_render(AppState* state) {
 
     TopicNode* node = state->selected_topic;
     if (!node) return;
+
+    uint32_t pl_len = 0;
+    const uint8_t* pl = topic_node_payload(node, &pl_len);
 
     static char full_path[512];
     topic_node_full_path(node, full_path, sizeof(full_path));
@@ -1046,20 +1086,10 @@ void inspector_widget_render(AppState* state) {
                  }) {
                 CLAY_TEXT(CLAY_STRING("Latest Value"), THEME_TEXT_SMALL);
 
-                if (topic_node_preview(node)[0] != '\0') {
-                    // Show first 150 chars only - full payload is in the tabs below
+                if (pl_len > 0) {
+                    // Show the first ~150 chars only - full payload is in the tabs below
                     static char s_latest_excerpt[160];
-                    const char* full_pv = topic_node_preview(node);
-                    size_t full_pv_len = strlen(full_pv);
-                    if (full_pv_len > 150) {
-                        memcpy(s_latest_excerpt, full_pv, 150);
-                        s_latest_excerpt[150] = '.';
-                        s_latest_excerpt[151] = '.';
-                        s_latest_excerpt[152] = '.';
-                        s_latest_excerpt[153] = '\0';
-                    } else {
-                        memcpy(s_latest_excerpt, full_pv, full_pv_len + 1);
-                    }
+                    util_preview_build_compact(s_latest_excerpt, sizeof(s_latest_excerpt), pl, pl_len);
                     Clay_String val_str = ui_utils_clay_string(s_latest_excerpt);
                     CLAY_TEXT(val_str,
                               CLAY_TEXT_CONFIG({
@@ -1098,8 +1128,8 @@ void inspector_widget_render(AppState* state) {
                      },
                  .border = {.width = {.bottom = 1}, .color = THEME_BORDER},
              }) {
-            const char* tab_names[] = {"JSON", "Text", "Hex", "History"};
-            ViewMode modes[] = {VIEW_JSON, VIEW_TEXT, VIEW_HEX, VIEW_HISTORY};
+            const char* tab_names[] = {"JSON", "CBOR", "Hex", "History"};
+            ViewMode modes[] = {VIEW_JSON, VIEW_CBOR, VIEW_HEX, VIEW_HISTORY};
             for (int t = 0; t < 4; t++) {
                 bool active = (state->inspector_view == (int)modes[t]);
                 CLAY(CLAY_IDI("Tab", (uint32_t)t), {
@@ -1142,14 +1172,14 @@ void inspector_widget_render(AppState* state) {
                     if (state->diff_enabled) {
                         render_json_diff_view(node);
                     } else {
-                        render_json_view(topic_node_preview(node), node->last_display_update_us);
+                        render_json_view(pl, pl_len, node->last_display_update_us);
                     }
                     break;
-                case VIEW_TEXT:
-                    render_text_view(topic_node_preview(node));
+                case VIEW_CBOR:
+                    render_cbor_view(pl, pl_len, node->last_display_update_us);
                     break;
                 case VIEW_HEX:
-                    render_hex_view(topic_node_preview(node));
+                    render_hex_view(pl, pl_len);
                     break;
                 case VIEW_HISTORY:
                     render_history_view(state, node);
@@ -1222,11 +1252,11 @@ void inspector_widget_render(AppState* state) {
                 case 0: // Copy Payload
                     if (state->inspector_view == VIEW_HEX) {
                         static char hex_copy_buf[5248]; // 64 lines x 82 chars
-                        const char* src = topic_node_preview(node);
-                        build_hex_dump_str(src, (int)strlen(src), hex_copy_buf, sizeof(hex_copy_buf));
+                        build_hex_dump_str(pl, pl_len, hex_copy_buf, sizeof(hex_copy_buf));
                         SetClipboardText(hex_copy_buf);
                     } else {
-                        SetClipboardText(topic_node_preview(node));
+                        SetClipboardText(
+                            payload_text_into(s_clip_scratch, sizeof(s_clip_scratch), pl, pl_len, TOPIC_PAYLOAD_CAP));
                     }
                     break;
                 case 1: // Copy Topic

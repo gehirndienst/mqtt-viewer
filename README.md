@@ -6,7 +6,7 @@ A simple and fast MQTT client for inspecting live broker traffic. Written in C23
 
 - **Native C UI** - top performance, low memory usage, and no Electron overhead
 - **Live topic tree** - realtime updates with global search, filtering, per-topic message counts and highlights
-- **Payload inspector** - JSON pp, hex view, and a diff view against the previous message on a topic
+- **Payload inspector** - JSON pp, CBOR pp, hex view, and a diff view against the previous message on a topic
 - **Charts** - live plots of numeric payload values or JSON fields over time
 - **Publish panel** - publish to any topic with QoS and retain control
 - **Broker profiles** - save connection settings (host, creds, TLS, MQTT proto/transport, subscriptions)

@@ -193,13 +193,7 @@ int main(void) {
                 if (node->message_count == 1 || (m->timestamp_us - node->last_display_update_us) >= ui_tick_us) {
                     node->last_display_update_us = m->timestamp_us;
                     snprintf(node->msg_count_str, sizeof(node->msg_count_str), "%u", node->message_count);
-                    if (m->payload) {
-                        util_preview_build_compact(topic_node_preview_buf(&state.topic_tree, node), TOPIC_PREVIEW_LEN,
-                                                   m->payload, m->payload_len);
-                    } else {
-                        // zero-length payload (e.g. "clear retained") must not leave a stale preview
-                        topic_node_preview_clear(node);
-                    }
+                    topic_node_payload_set(&state.topic_tree, node, m->payload, m->payload ? m->payload_len : 0);
                 }
 
                 MessageRecord rec = {
