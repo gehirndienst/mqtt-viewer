@@ -58,6 +58,17 @@ static void scan_atom(JsonPP* pp, char* buf, int buf_size) {
     buf[copy_len] = '\0';
 }
 
+static bool atom_is_numeric(const char* val) {
+    if (val[0] == '\0') return false;
+    const char* p = val;
+    if (*p == '+' || *p == '-') p++;
+    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) return false;
+
+    char* end = NULL;
+    double v = strtod(val, &end);
+    return end != val && *end == '\0' && isfinite(v);
+}
+
 static void format_object_contents(JsonPP* pp) {
     skip_ws(pp);
     while (pp->pos < pp->src_len && pp->src[pp->pos] != '}' && pp->line_count < JSON_PP_MAX_LINES) {
@@ -146,9 +157,7 @@ static void format_value(JsonPP* pp, const char* key) {
     } else {
         char val[JSON_PP_VAL_LEN] = "";
         scan_atom(pp, val, sizeof(val));
-        char* endp = NULL;
-        double dv = strtod(val, &endp);
-        json_pp_emit(pp, key, val, JSON_PP_VAL_ATOM, endp != val && isfinite(dv));
+        json_pp_emit(pp, key, val, JSON_PP_VAL_ATOM, atom_is_numeric(val));
     }
 }
 
@@ -203,18 +212,24 @@ void json_pp_mark_trailing_comma(JsonPP* pp) {
 
 bool json_pp_looks_like_json(const char* src, size_t len) {
     if (!src || len == 0) return false;
+
+    // trim before deciding anything
+    size_t lead = 0;
+    while (lead < len && (src[lead] == ' ' || src[lead] == '\t' || src[lead] == '\n' || src[lead] == '\r')) lead++;
+    if (lead == len) return false;
+    src += lead;
+    len -= lead;
+
     if (src[0] == '{' || src[0] == '[' || src[0] == '"') return true;
 
-    // bare number, optionally surrounded by whitespace; hex is not JSON. A number never needs 64 chars.
+    // bare number, optionally followed by whitespace; hex is not JSON. A number never needs 64 chars
     char buf[64];
     if (len >= sizeof(buf)) return false;
 
     memcpy(buf, src, len);
     buf[len] = '\0';
 
-    const char* p = buf;
-    while (*p == ' ') p++;
-
+    const char* p = buf; // already trimmed
     if (*p == '+' || *p == '-') p++;
     if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) return false;
 

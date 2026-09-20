@@ -59,6 +59,33 @@ TEST(malformed_input_terminates) {
     ASSERT_TRUE(s_pp.line_count >= 1);
 }
 
+TEST(atom_is_numeric_requires_the_whole_token) {
+    json_pp_run(&s_pp, "{\"a\": 12abc, \"b\": 0x1F, \"c\": 7, \"d\": 1.5e2, \"e\": -0}");
+    ASSERT_STR_EQ(s_pp.lines[1].val, "12abc");
+    ASSERT_FALSE(s_pp.lines[1].is_numeric);
+    ASSERT_STR_EQ(s_pp.lines[2].val, "0x1F");
+    ASSERT_FALSE(s_pp.lines[2].is_numeric);
+    ASSERT_TRUE(s_pp.lines[3].is_numeric);
+    ASSERT_TRUE(s_pp.lines[4].is_numeric);
+    ASSERT_TRUE(s_pp.lines[5].is_numeric);
+
+    double v = 0;
+    ASSERT_FALSE(json_pp_line_number(&s_pp.lines[1], &v));
+    ASSERT_FALSE(json_pp_line_number(&s_pp.lines[2], &v));
+    ASSERT_TRUE(json_pp_line_number(&s_pp.lines[3], &v));
+    ASSERT_TRUE(v == 7.0);
+}
+
+TEST(looks_like_json_skips_leading_whitespace) {
+    ASSERT_TRUE(json_pp_looks_like_json("  {\"a\":1}", 10));
+    ASSERT_TRUE(json_pp_looks_like_json("\n{\"a\":1}", 9));
+    ASSERT_TRUE(json_pp_looks_like_json("\t[1,2]", 6));
+    ASSERT_TRUE(json_pp_looks_like_json("\r\n \"str\"", 8));
+    ASSERT_FALSE(json_pp_looks_like_json("   ", 3));
+    ASSERT_TRUE(
+        json_pp_looks_like_json("                                                                  {\"a\":1}", 74));
+}
+
 TEST(looks_like_json) {
     ASSERT_TRUE(json_pp_looks_like_json("{\"a\":1}", 7));
     ASSERT_TRUE(json_pp_looks_like_json("[1,2]", 5));
@@ -188,6 +215,8 @@ int main(void) {
     RUN(values_are_verbatim_not_reformatted);
     RUN(truncated_input_still_yields_lines);
     RUN(malformed_input_terminates);
+    RUN(atom_is_numeric_requires_the_whole_token);
+    RUN(looks_like_json_skips_leading_whitespace);
     RUN(looks_like_json);
     RUN(cache_skips_rerun_until_key_changes);
     RUN(emit_helpers_build_lines_like_the_formatter);
