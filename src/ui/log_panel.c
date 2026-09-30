@@ -199,6 +199,7 @@ void log_panel_render(AppState* state) {
                          .padding = {4, 4, 4, 4},
                          .childGap = 2,
                      },
+                 .clip = {.vertical = true, .childOffset = Clay_GetScrollOffset()},
              }) {
             // Rows are pre-formatted by log_rows_refresh(); this loop only lays them out
             for (uint32_t di = 0; di < s_row_count; di++) {
