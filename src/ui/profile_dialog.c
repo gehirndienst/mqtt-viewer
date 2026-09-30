@@ -15,6 +15,7 @@
 #include "model/util.h"
 #include "platform/db.h"
 #include "ui/profile_dialog.h"
+#include "ui/text_edit.h"
 #include "ui/text_input.h"
 #include "ui/theme.h"
 #include "ui/ui_util.h"
@@ -30,15 +31,16 @@
 #define FIDX_KA 4
 #define FIDX_USER 5
 #define FIDX_PASS 6
-#define FIDX_CA 7
-#define FIDX_CERT 8
-#define FIDX_KEY 9
-#define FIDX_SSH_HOST 10
-#define FIDX_SSH_PORT 11
-#define FIDX_SSH_USER 12
-#define FIDX_SSH_PASS 13
-#define FIDX_SSH_KEY 14
-#define FIDX_SUB_BASE 15
+#define FIDX_WS_PATH 7
+#define FIDX_CA 8
+#define FIDX_CERT 9
+#define FIDX_KEY 10
+#define FIDX_SSH_HOST 11
+#define FIDX_SSH_PORT 12
+#define FIDX_SSH_USER 13
+#define FIDX_SSH_PASS 14
+#define FIDX_SSH_KEY 15
+#define FIDX_SUB_BASE 16
 #define FIDX_MAX (FIDX_SUB_BASE + MAX_PROFILE_SUBS)
 
 static char s_field_bufs[FIELD_BUF_COUNT][FIELD_BUF_SIZE];
@@ -49,6 +51,17 @@ static char s_ka_str[16];
 static char s_ssh_port_str[16];
 static bool s_active_field_selected = false;
 static bool s_ssh_section_expanded = false;
+static size_t s_caret; // caret byte offset within the active field
+static int s_prev_active_field = -2; // detects focus changes to reset the caret and selection
+
+static size_t caret_from_click(const char* raw, Clay_ElementId id, float pad_left, bool marker_shown) {
+    Clay_ElementData d = Clay_GetElementData(id);
+    if (!d.found) return strlen(raw);
+    static char disp[FIELD_BUF_SIZE];
+    size_t marker = text_edit_format(disp, sizeof(disp), raw, s_caret, marker_shown);
+    return text_edit_hit_test(disp, marker, FONT_MONO, 13.0f, 0.0f, GetMousePosition().x - d.boundingBox.x - pad_left,
+                              0.0f);
+}
 
 static char* next_field_buf(void) {
     s_field_buf_idx = (s_field_buf_idx + 1) % FIELD_BUF_COUNT;
@@ -76,6 +89,8 @@ static FieldTarget field_target(BrokerProfile* prof, int idx) {
             return (FieldTarget){prof->username, sizeof(prof->username)};
         case FIDX_PASS:
             return (FieldTarget){prof->password, sizeof(prof->password)};
+        case FIDX_WS_PATH:
+            return (FieldTarget){prof->ws_path, sizeof(prof->ws_path)};
         case FIDX_CA:
             return (FieldTarget){prof->tls_ca_cert, sizeof(prof->tls_ca_cert)};
         case FIDX_CERT:
@@ -138,11 +153,7 @@ static void render_field(const char* label, const char* value, const char* field
 
         bool is_selected = is_active && s_active_field_selected;
         char* buf = next_field_buf();
-        if (is_active && !is_selected) {
-            snprintf(buf, FIELD_BUF_SIZE, "%s|", value ? value : "");
-        } else {
-            util_str_copy(buf, FIELD_BUF_SIZE, value);
-        }
+        text_edit_format(buf, FIELD_BUF_SIZE, value, s_caret, is_active && !is_selected);
         Clay_String vs = ui_utils_clay_string(buf);
 
         CLAY(CLAY_SID(val_id_cs),
@@ -326,6 +337,22 @@ static void render_selector(const char* label, const char** opt_labels, int coun
     }
 }
 
+// Focus field @p fidx from a mouse click on element @p id, placing the caret under the pointer
+static void focus_field_click(AppState* state, BrokerProfile* prof, int fidx, Clay_ElementId id) {
+    bool was_active = state->profile_active_field == fidx;
+    FieldTarget ft = field_target(prof, fidx);
+    size_t caret = ft.buf ? strlen(ft.buf) : 0;
+    // an unfocused password field renders as bullets, so the pointer position says nothing about the real text
+    bool masked = (fidx == FIDX_PASS || fidx == FIDX_SSH_PASS) && !was_active;
+    if (ft.buf && !masked) {
+        caret = caret_from_click(ft.buf, id, 8.0f, was_active && !state->profile_field_all_selected);
+    }
+    state->profile_active_field = fidx;
+    state->profile_field_all_selected = false;
+    s_prev_active_field = fidx; // stop the focus-change hook from moving the caret to the end
+    s_caret = caret;
+}
+
 void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
     if (!state->profile_dialog_open) return;
 
@@ -346,10 +373,11 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
     }
 
     // any change of focused field drops the selection
-    static int s_prev_active_field = -2;
     if (state->profile_active_field != s_prev_active_field) {
         s_prev_active_field = state->profile_active_field;
         state->profile_field_all_selected = false;
+        FieldTarget nt = prof ? field_target(prof, state->profile_active_field) : (FieldTarget){NULL, 0};
+        s_caret = nt.buf ? strlen(nt.buf) : 0; // tab / programmatic focus lands at the end of the text
     }
 
     int sub_count = prof ? prof->subscription_count : 0;
@@ -358,45 +386,13 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
     if (state->profile_active_field >= 0 && prof) {
         FieldTarget ft = field_target(prof, state->profile_active_field);
         if (ft.buf) {
-            if (text_input_select_all_pressed()) {
-                state->profile_field_all_selected = true;
-            }
-            if (!text_input_handle_copy(ft.buf)) {
-                int ch;
-                while ((ch = GetCharPressed()) != 0) {
-                    if (state->profile_field_all_selected) {
-                        ft.buf[0] = '\0';
-                        state->profile_field_all_selected = false;
-                    }
-                    size_t len = strlen(ft.buf);
-                    if (len + 1 < ft.max) {
-                        ft.buf[len] = (char)ch;
-                        ft.buf[len + 1] = '\0';
-                    }
-                }
-
-                if (state->profile_field_all_selected && text_input_paste_pressed()) {
-                    ft.buf[0] = '\0'; // paste replaces the selection instead of appending to it
-                }
-
-                if (text_input_handle_paste(ft.buf, ft.max, false)) {
-                    state->profile_field_all_selected = false;
-                }
-
-                bool ctrl_down = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-                if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) {
-                    if (ctrl_down || state->profile_field_all_selected) {
-                        ft.buf[0] = '\0';
-                    } else {
-                        size_t len = strlen(ft.buf);
-                        if (len > 0) ft.buf[len - 1] = '\0';
-                    }
-                    state->profile_field_all_selected = false;
-                }
-            }
+            text_edit_update(ft.buf, ft.max, &s_caret, &state->profile_field_all_selected, false, false);
         }
         if (IsKeyPressed(KEY_TAB)) {
             int next = (state->profile_active_field + 1) % total_fields;
+            if (prof->transport == 0 && next == FIDX_WS_PATH) {
+                next++;
+            }
             if (!s_ssh_section_expanded && next >= FIDX_SSH_HOST && next <= FIDX_SSH_PASS) {
                 next = FIDX_SUB_BASE % total_fields;
             }
@@ -626,6 +622,10 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
                             static const char* tr_labels[] = {"TCP", "WS"};
                             render_selector("Protocol", tr_labels, 2, prof->transport, "SelTransport");
                         }
+                        if (prof->transport != 0) {
+                            render_field("WS Path (default /mqtt)", prof->ws_path, "FldWsPath",
+                                         state->profile_active_field == FIDX_WS_PATH);
+                        }
 
                         CLAY_TEXT(CLAY_STRING("TLS"),
                                   CLAY_TEXT_CONFIG({
@@ -678,11 +678,8 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
 
                             // Build topic display (cursor when active)
                             char* sub_buf = next_field_buf();
-                            if (sub_active) {
-                                snprintf(sub_buf, FIELD_BUF_SIZE, "%s|", prof->subscriptions[s].topic);
-                            } else {
-                                util_str_copy(sub_buf, FIELD_BUF_SIZE, prof->subscriptions[s].topic);
-                            }
+                            text_edit_format(sub_buf, FIELD_BUF_SIZE, prof->subscriptions[s].topic, s_caret,
+                                             sub_active && !s_active_field_selected);
 
                             Clay_String topic_cs = ui_utils_clay_string(sub_buf);
 
@@ -961,27 +958,25 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
             const char* val_id;
             int fidx;
         } kFieldClicks[] = {
-            {"FldName_Val", FIDX_NAME},        {"FldHost_Val", FIDX_HOST},
-            {"FldPort_Val", FIDX_PORT},        {"FldClientId_Val", FIDX_CLIENTID},
-            {"FldKeepalive_Val", FIDX_KA},     {"FldUser_Val", FIDX_USER},
-            {"FldPass_Val", FIDX_PASS},        {"FldCA_Val", FIDX_CA},
-            {"FldCert_Val", FIDX_CERT},        {"FldKey_Val", FIDX_KEY},
-            {"FldSshHost_Val", FIDX_SSH_HOST}, {"FldSshPort_Val", FIDX_SSH_PORT},
-            {"FldSshUser_Val", FIDX_SSH_USER}, {"FldSshPass_Val", FIDX_SSH_PASS},
+            {"FldName_Val", FIDX_NAME},         {"FldHost_Val", FIDX_HOST},        {"FldPort_Val", FIDX_PORT},
+            {"FldClientId_Val", FIDX_CLIENTID}, {"FldKeepalive_Val", FIDX_KA},     {"FldUser_Val", FIDX_USER},
+            {"FldPass_Val", FIDX_PASS},         {"FldWsPath_Val", FIDX_WS_PATH},   {"FldCA_Val", FIDX_CA},
+            {"FldCert_Val", FIDX_CERT},         {"FldKey_Val", FIDX_KEY},          {"FldSshHost_Val", FIDX_SSH_HOST},
+            {"FldSshPort_Val", FIDX_SSH_PORT},  {"FldSshUser_Val", FIDX_SSH_USER}, {"FldSshPass_Val", FIDX_SSH_PASS},
             {"FldSshKey_Val", FIDX_SSH_KEY},
         };
         for (int fi = 0; fi < (int)(sizeof(kFieldClicks) / sizeof(kFieldClicks[0])); fi++) {
             if (Clay_PointerOver(Clay_GetElementId(ui_utils_clay_string(kFieldClicks[fi].val_id))) &&
                 IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                state->profile_active_field = kFieldClicks[fi].fidx;
-                state->profile_field_all_selected = false;
+                focus_field_click(state, prof, kFieldClicks[fi].fidx,
+                                  Clay_GetElementId(ui_utils_clay_string(kFieldClicks[fi].val_id)));
             }
         }
         // Subscription field clicks
         for (int s = 0; s < prof->subscription_count; s++) {
             if (Clay_PointerOver(CLAY_IDI("SubInp", (uint32_t)s)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                state->profile_active_field = FIDX_SUB_BASE + s;
-                state->profile_field_all_selected = false;
+                focus_field_click(state, prof, FIDX_SUB_BASE + s,
+                                  Clay_GetElementIdWithIndex(CLAY_STRING("SubInp"), (uint32_t)s));
             }
         }
         // Subscription QoS button clicks
@@ -1056,6 +1051,10 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
     }
     if (set_transport >= 0 && prof) {
         prof->transport = set_transport;
+        if (set_transport == 0 && state->profile_active_field == FIDX_WS_PATH) {
+            state->profile_active_field = -1;
+            state->profile_field_all_selected = false;
+        }
     }
     if (save_profile && prof && db) {
         prof->port = (uint16_t)atoi(s_port_str);
@@ -1099,6 +1098,7 @@ void profile_dialog_render(AppState* state, Db* db, MqttClient* mqtt) {
             .keepalive_secs = prof->keepalive_secs,
             .protocol_version = prof->protocol_version,
             .transport = prof->transport,
+            .ws_path = prof->ws_path[0] ? prof->ws_path : NULL,
             .tls_ca_cert = prof->tls_ca_cert,
             .tls_client_cert = prof->tls_client_cert,
             .tls_client_key = prof->tls_client_key,

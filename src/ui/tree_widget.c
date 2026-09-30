@@ -14,6 +14,7 @@
 #include "model/util.h"
 #include "platform/db.h"
 #include "ui/inspector_widget.h"
+#include "ui/text_edit.h"
 #include "ui/text_input.h"
 #include "ui/theme.h"
 #include "ui/tree_widget.h"
@@ -42,6 +43,11 @@ static char s_last_search_query[256] = "";
 static bool s_last_search_mode = false;
 static char s_search_ts_bufs[SEARCH_MAX_RESULTS][16];
 static char s_search_meta_bufs[SEARCH_MAX_RESULTS][32];
+
+static size_t s_filter_caret; // caret byte offset within topic_filter
+static bool s_filter_was_focused;
+static char s_filter_display[260];
+static size_t s_filter_marker = TEXT_EDIT_NO_MARKER;
 
 // Row previews are sanitized from the raw payload every frame;
 // Clay reads the strings after layout, so they live here until the next frame's reset
@@ -484,51 +490,21 @@ static void render_search_results(AppState* state) {
 void tree_widget_render(AppState* state, Db* db) {
     if (state->topic_filter_focused && !state->publish_panel_open && !state->context_menu_open &&
         !state->profile_dialog_open) {
-        if (text_input_select_all_pressed()) {
-            state->topic_filter_all_selected = true;
-        }
+        if (!s_filter_was_focused) s_filter_caret = strlen(state->topic_filter); // focus without a click
+        text_edit_update(state->topic_filter, sizeof(state->topic_filter), &s_filter_caret,
+                         &state->topic_filter_all_selected, false, true);
 
-        if (!text_input_handle_copy(state->topic_filter)) {
-            if (IsKeyPressed(KEY_BACKSPACE)) {
-                if (state->topic_filter_all_selected) {
-                    state->topic_filter[0] = '\0';
-                } else if (strlen(state->topic_filter) > 0) {
-                    state->topic_filter[strlen(state->topic_filter) - 1] = '\0';
-                }
-                state->topic_filter_all_selected = false;
-            }
-
-            if (IsKeyPressed(KEY_ESCAPE)) {
-                state->topic_filter[0] = '\0';
-                state->topic_filter_focused = false;
-                state->topic_filter_all_selected = false;
-            }
-
-            int ch;
-            while ((ch = GetCharPressed()) != 0) {
-                if (state->topic_filter_all_selected) {
-                    state->topic_filter[0] = '\0';
-                    state->topic_filter_all_selected = false;
-                }
-                size_t len = strlen(state->topic_filter);
-                if (ch >= 32 && ch < 127 && len < sizeof(state->topic_filter) - 1) {
-                    state->topic_filter[len] = (char)ch;
-                    state->topic_filter[len + 1] = '\0';
-                }
-            }
-
-            if (state->topic_filter_all_selected && text_input_paste_pressed()) {
-                state->topic_filter[0] = '\0'; // paste replaces the selection instead of appending to it
-            }
-
-            if (text_input_handle_paste(state->topic_filter, sizeof(state->topic_filter), false)) {
-                state->topic_filter_all_selected = false;
-            }
+        if (IsKeyPressed(KEY_ESCAPE)) {
+            state->topic_filter[0] = '\0';
+            state->topic_filter_focused = false;
+            state->topic_filter_all_selected = false;
         }
     } else if (!state->publish_panel_open && !state->profile_dialog_open) {
         // Drain GetCharPressed so characters don't accumulate when no panel uses them
         while (GetCharPressed() != 0) {}
     }
+
+    s_filter_was_focused = state->topic_filter_focused;
 
     // Lose focus when another panel opens
     if (state->publish_panel_open || state->context_menu_open || state->profile_dialog_open) {
@@ -593,16 +569,9 @@ void tree_widget_render(AppState* state, Db* db) {
                  }) {
                 if (state->topic_filter[0] != '\0') {
                     // filter text + cursor
-                    static char filter_display[260];
-                    size_t flen = strlen(state->topic_filter);
-                    memcpy(filter_display, state->topic_filter, flen);
-                    if (state->topic_filter_focused && !filter_selected) {
-                        filter_display[flen] = '|';
-                        filter_display[flen + 1] = '\0';
-                    } else {
-                        filter_display[flen] = '\0';
-                    }
-                    Clay_String fs = ui_utils_clay_string(filter_display);
+                    s_filter_marker = text_edit_format(s_filter_display, sizeof(s_filter_display), state->topic_filter,
+                                                       s_filter_caret, state->topic_filter_focused && !filter_selected);
+                    Clay_String fs = ui_utils_clay_string(s_filter_display);
                     CLAY_TEXT(fs,
                               CLAY_TEXT_CONFIG({
                                   .fontSize = 13,
@@ -650,6 +619,19 @@ void tree_widget_render(AppState* state, Db* db) {
             state->topic_filter[0] = '\0';
             state->topic_filter_focused = false;
         } else {
+            if (filter_hovered && state->topic_filter[0] != '\0') {
+                Clay_ElementData d = Clay_GetElementData(Clay_GetElementId(CLAY_STRING("FilterText")));
+                size_t raw_len = strlen(state->topic_filter);
+                size_t caret = raw_len;
+                if (d.found) {
+                    caret = text_edit_hit_test(s_filter_display, s_filter_marker, FONT_DEFAULT, 13.0f, 0.0f,
+                                               GetMousePosition().x - d.boundingBox.x, 0.0f);
+                }
+                s_filter_caret = caret > raw_len ? raw_len : caret;
+            } else {
+                s_filter_caret = strlen(state->topic_filter);
+            }
+            s_filter_was_focused = filter_hovered; // the click already placed the caret
             state->topic_filter_focused = filter_hovered;
         }
         state->topic_filter_all_selected = false;

@@ -11,7 +11,7 @@
 #include "model/connection_log.h"
 #include "model/util.h"
 #include "ui/publish_panel.h"
-#include "ui/text_input.h"
+#include "ui/text_edit.h"
 #include "ui/theme.h"
 #include "ui/ui_util.h"
 
@@ -20,6 +20,19 @@
 
 static char s_pp_bufs[PP_BUF_COUNT][PP_BUF_SIZE];
 static int s_pp_buf_idx = PP_BUF_COUNT - 1;
+
+static size_t s_pp_caret; // caret byte offset within the active field
+static int s_pp_prev_field = -1; // detects focus changes so the caret can jump to the end of the new field
+static size_t s_topic_marker = TEXT_EDIT_NO_MARKER;
+static size_t s_payload_marker = TEXT_EDIT_NO_MARKER;
+
+static size_t pp_caret_from_click(Clay_ElementId id, const char* display, size_t marker) {
+    Clay_ElementData d = Clay_GetElementData(id);
+    if (!d.found) return TEXT_EDIT_NO_MARKER;
+    Vector2 m = GetMousePosition();
+    return text_edit_hit_test(display, marker, FONT_MONO, 13.0f, d.boundingBox.width - 16.0f,
+                              m.x - d.boundingBox.x - 8.0f, m.y - d.boundingBox.y - 4.0f);
+}
 
 static char* pp_next_buf(void) {
     s_pp_buf_idx = (s_pp_buf_idx + 1) % PP_BUF_COUNT;
@@ -35,6 +48,7 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
     if (!s_was_open) {
         state->publish_active_field = 0; // reset to topic field when panel first opens
         state->publish_field_all_selected = false;
+        s_pp_prev_field = -1;
     }
     s_was_open = true;
 
@@ -50,43 +64,11 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
         size_t cap = state->publish_active_field == 0 ? sizeof(state->publish_topic) : sizeof(state->publish_payload);
         bool allow_newlines = state->publish_active_field == 1;
 
-        if (text_input_select_all_pressed()) {
-            state->publish_field_all_selected = true;
+        if (state->publish_active_field != s_pp_prev_field) {
+            s_pp_prev_field = state->publish_active_field;
+            s_pp_caret = strlen(buf);
         }
-
-        if (!text_input_handle_copy(buf)) {
-            int ch;
-            while ((ch = GetCharPressed()) != 0) {
-                if (state->publish_field_all_selected) {
-                    buf[0] = '\0';
-                    state->publish_field_all_selected = false;
-                }
-                size_t len = strlen(buf);
-                if (len + 1 < cap) {
-                    buf[len] = (char)ch;
-                    buf[len + 1] = '\0';
-                }
-            }
-
-            if (state->publish_field_all_selected && text_input_paste_pressed()) {
-                buf[0] = '\0'; // paste replaces the selection instead of appending to it
-            }
-
-            if (text_input_handle_paste(buf, cap, allow_newlines)) {
-                state->publish_field_all_selected = false;
-            }
-
-            bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-            if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) {
-                if (ctrl || state->publish_field_all_selected) {
-                    buf[0] = '\0';
-                } else {
-                    size_t len = strlen(buf);
-                    if (len > 0) buf[len - 1] = '\0';
-                }
-                state->publish_field_all_selected = false;
-            }
-        }
+        text_edit_update(buf, cap, &s_pp_caret, &state->publish_field_all_selected, allow_newlines, false);
 
         if (IsKeyPressed(KEY_ESCAPE)) {
             do_close = true;
@@ -96,33 +78,15 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
     bool topic_selected = state->publish_active_field == 0 && state->publish_field_all_selected;
     bool payload_selected = state->publish_active_field == 1 && state->publish_field_all_selected;
 
-    // Topic field value
+    // Topic and payload display strings, with the caret marker in the active one
     static char s_topic_display[256 + 4];
-    snprintf(s_topic_display, sizeof(s_topic_display), "%s%s", state->publish_topic,
-             (state->publish_active_field == 0 && !topic_selected) ? "|" : "");
+    s_topic_marker = text_edit_format(s_topic_display, sizeof(s_topic_display), state->publish_topic, s_pp_caret,
+                                      state->publish_active_field == 0 && !topic_selected);
 
-    // Payload field value only show first 128 chars to avoid huge display
+    // Long payloads are cut for display to keep the layout cheap
     static char s_payload_display[PP_BUF_SIZE];
-    {
-        size_t pay_len = strlen(state->publish_payload);
-        size_t show = pay_len < (PP_BUF_SIZE - 4) ? pay_len : (PP_BUF_SIZE - 4);
-        memcpy(s_payload_display, state->publish_payload, show);
-        if (pay_len > show) {
-            s_payload_display[show] = '.';
-            s_payload_display[show + 1] = '.';
-            s_payload_display[show + 2] = '.';
-            s_payload_display[show + 3] = '\0';
-        } else {
-            s_payload_display[show] = '\0';
-        }
-        if (state->publish_active_field == 1 && !payload_selected) {
-            size_t cur = strlen(s_payload_display);
-            if (cur + 1 < sizeof(s_payload_display)) {
-                s_payload_display[cur] = '|';
-                s_payload_display[cur + 1] = '\0';
-            }
-        }
-    }
+    s_payload_marker = text_edit_format(s_payload_display, sizeof(s_payload_display), state->publish_payload,
+                                        s_pp_caret, state->publish_active_field == 1 && !payload_selected);
 
     static const char* s_qos_labels[3] = {"0", "1", "2"};
     static const char* s_qos_ids[3] = {"PPQos0", "PPQos1", "PPQos2"};
@@ -341,13 +305,18 @@ void publish_panel_render(AppState* state, MqttClient* mqtt) {
         }
     }
 
-    if (click_topic) {
-        state->publish_active_field = 0;
+    if (click_topic || click_payload) {
+        int field = click_topic ? 0 : 1;
+        size_t caret = click_topic
+            ? pp_caret_from_click(Clay_GetElementId(CLAY_STRING("PPTopicInput")), s_topic_display, s_topic_marker)
+            : pp_caret_from_click(Clay_GetElementId(CLAY_STRING("PPPayloadInput")), s_payload_display,
+                                  s_payload_marker);
+        const char* raw = click_topic ? state->publish_topic : state->publish_payload;
+        size_t raw_len = strlen(raw);
+        state->publish_active_field = field;
         state->publish_field_all_selected = false;
-    }
-    if (click_payload) {
-        state->publish_active_field = 1;
-        state->publish_field_all_selected = false;
+        s_pp_prev_field = field; // keep the caret from jumping to the end
+        s_pp_caret = caret > raw_len ? raw_len : caret;
     }
     if (toggle_retain) state->publish_retain = !state->publish_retain;
     if (set_qos >= 0) state->publish_qos = (uint8_t)set_qos;
