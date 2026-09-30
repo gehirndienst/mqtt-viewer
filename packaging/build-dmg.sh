@@ -52,10 +52,11 @@ cat > "${STAGING}/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 
-hdiutil create \
-    -volname "MQTT Viewer ${VERSION}" \
-    -srcfolder "packaging/staging" \
-    -ov -format UDZO \
+rm -f "${DMG_NAME}"
+diskutil image create from \
+    --volumeName "MQTT Viewer ${VERSION}" \
+    --format UDZO \
+    "packaging/staging" \
     "${DMG_NAME}"
 
 rm -rf "packaging/staging"
