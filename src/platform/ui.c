@@ -64,10 +64,14 @@ bool ui_init(UiCtx* ctx) {
     SetWindowMinSize(960, 640);
 
     build_codepoints();
-    s_fonts[FONT_DEFAULT] = LoadFontFromMemory(".ttf", s_font_default_data, (int)sizeof(s_font_default_data), 40,
+
+    Vector2 dpi = GetWindowScaleDPI();
+    float scale = dpi.x > 0.5f ? dpi.x : 1.0f;
+    int atlas_px = (int)(16.0f * scale + 0.5f);
+    s_fonts[FONT_DEFAULT] = LoadFontFromMemory(".ttf", s_font_default_data, (int)sizeof(s_font_default_data), atlas_px,
                                                s_codepoints, s_codepoint_count);
-    s_fonts[FONT_MONO] = LoadFontFromMemory(".ttf", s_font_mono_data, (int)sizeof(s_font_mono_data), 40, s_codepoints,
-                                            s_codepoint_count);
+    s_fonts[FONT_MONO] = LoadFontFromMemory(".ttf", s_font_mono_data, (int)sizeof(s_font_mono_data), atlas_px,
+                                            s_codepoints, s_codepoint_count);
     SetTextureFilter(s_fonts[FONT_DEFAULT].texture, TEXTURE_FILTER_BILINEAR);
     SetTextureFilter(s_fonts[FONT_MONO].texture, TEXTURE_FILTER_BILINEAR);
 

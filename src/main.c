@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Nikita Smirnov <nktsmirnov@gmail.com>
 // SPDX-License-Identifier: Apache-2.0
 #include <errno.h>
+#include <math.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -506,7 +507,10 @@ int main(void) {
                     }
                     memcpy(text_buf, td->stringContents.chars, len);
                     text_buf[len] = '\0';
-                    DrawTextEx(font, text_buf, (Vector2){bb.x, bb.y}, (float)td->fontSize, 1.0f,
+                    // Snap the origin to whole physical pixels; fractional glyph positions smear at 1x scale
+                    float px_scale = GetWindowScaleDPI().x > 0.5f ? GetWindowScaleDPI().x : 1.0f;
+                    Vector2 text_pos = {roundf(bb.x * px_scale) / px_scale, roundf(bb.y * px_scale) / px_scale};
+                    DrawTextEx(font, text_buf, text_pos, (float)td->fontSize, 1.0f,
                                (Color){(unsigned char)td->textColor.r, (unsigned char)td->textColor.g,
                                        (unsigned char)td->textColor.b, (unsigned char)td->textColor.a});
                     break;
