@@ -60,6 +60,7 @@ src_ui = files(
     'src/ui/menu_bar.c',
     'src/ui/status_bar.c',
     'src/ui/ui_util.c',
+    'src/ui/text_edit.c',
 )
 
 src_platform = files(
