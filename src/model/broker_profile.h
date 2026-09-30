@@ -29,6 +29,7 @@ typedef struct {
     char username[128];
     char password[128];
     int transport; // 0=TCP, 1=WS, 2=WSS
+    char ws_path[128]; // WebSocket URL path; empty = libmosquitto default ("/mqtt")
     char tls_ca_cert[512];
     char tls_client_cert[512];
     char tls_client_key[512];

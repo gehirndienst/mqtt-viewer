@@ -22,6 +22,7 @@ typedef struct {
     const char* password; // NULL if no auth
     int protocol_version; // 31=MQTT 3.1, 311=MQTT 3.1.1, 5=MQTT 5
     int transport; // 0=TCP (default), 1=WS (WebSocket)
+    const char* ws_path; // WebSocket URL path; NULL = libmosquitto default ("/mqtt")
     // TLS - enabled when tls_version != 0 (WSS also implies TLS)
     const char* tls_ca_cert; // path to CA certificate file
     const char* tls_client_cert; // path to client cert (NULL = no mutual auth)

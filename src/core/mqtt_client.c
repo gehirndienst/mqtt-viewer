@@ -35,17 +35,37 @@ struct MqttClient {
     char sub_topics[MQTT_CLIENT_MAX_SUBS][256];
     uint8_t sub_qos[MQTT_CLIENT_MAX_SUBS];
     uint32_t sub_count;
+    // in-flight SUBSCRIBE packets, so a SUBACK can be reported against its topic filter (guarded by sub_mutex)
+    struct {
+        int mid;
+        char topic[256];
+    } pending_subs[MQTT_CLIENT_MAX_SUBS];
+    uint32_t pending_next;
     SshTunnel ssh_tunnel;
     atomic_uint dropped_count; // msg lost to OOM or a full queue
+    uint64_t last_drop_log_us; // network thread only; throttles the "Dropped" log line
 };
 
 static void note_dropped(MqttClient* client, const char* why) {
     unsigned n = atomic_fetch_add_explicit(&client->dropped_count, 1, memory_order_relaxed) + 1;
-    if (n == 1 || n % 1000 == 0) {
+    uint64_t now = util_now_us();
+    if (n == 1 || now - client->last_drop_log_us >= 5000000) {
+        client->last_drop_log_us = now;
         char buf[128];
         snprintf(buf, sizeof(buf), "Dropped %u message(s) so far (%s)", n, why);
         connection_log_add(client->log, CONN_LOG_WARN, buf);
     }
+}
+
+static int send_subscribe(MqttClient* client, struct mosquitto* mosq, const char* topic, int qos) {
+    int mid = 0;
+    int rc = mosquitto_subscribe(mosq, &mid, topic, qos);
+    if (rc == MOSQ_ERR_SUCCESS) {
+        uint32_t slot = client->pending_next++ % MQTT_CLIENT_MAX_SUBS;
+        client->pending_subs[slot].mid = mid;
+        util_str_copy(client->pending_subs[slot].topic, sizeof(client->pending_subs[slot].topic), topic);
+    }
+    return rc;
 }
 
 static void on_connect(struct mosquitto* mosq, void* obj, int rc) {
@@ -56,7 +76,7 @@ static void on_connect(struct mosquitto* mosq, void* obj, int rc) {
         connection_log_add(client->log, CONN_LOG_INFO, "Connected to broker");
         pthread_mutex_lock(&client->sub_mutex);
         for (uint32_t i = 0; i < client->sub_count; i++) {
-            mosquitto_subscribe(mosq, NULL, client->sub_topics[i], client->sub_qos[i]);
+            send_subscribe(client, mosq, client->sub_topics[i], client->sub_qos[i]);
         }
         pthread_mutex_unlock(&client->sub_mutex);
     } else {
@@ -118,11 +138,33 @@ static void on_message(struct mosquitto* mosq, void* obj, const struct mosquitto
 
 static void on_subscribe(struct mosquitto* mosq, void* obj, int mid, int qos_count, const int* granted_qos) {
     (void)mosq;
-    (void)mid;
-    (void)qos_count;
-    (void)granted_qos;
     MqttClient* client = obj;
-    connection_log_add(client->log, CONN_LOG_INFO, "Subscription acknowledged");
+
+    char topic[256] = "";
+    pthread_mutex_lock(&client->sub_mutex);
+    for (uint32_t i = 0; i < MQTT_CLIENT_MAX_SUBS; i++) {
+        if (client->pending_subs[i].mid == mid && client->pending_subs[i].topic[0] != '\0') {
+            util_str_copy(topic, sizeof(topic), client->pending_subs[i].topic);
+            client->pending_subs[i].topic[0] = '\0';
+            break;
+        }
+    }
+    pthread_mutex_unlock(&client->sub_mutex);
+
+    // MQTT 3.1.1 returns 0x80 for a refused subscription; MQTT 5 uses reason codes >= 0x80 for every failure
+    for (int i = 0; i < qos_count; i++) {
+        char buf[384];
+        if (granted_qos[i] >= 0x80) {
+            snprintf(buf, sizeof(buf),
+                     "Subscription to '%s' denied by broker (reason 0x%02X) - no messages will arrive",
+                     topic[0] ? topic : "?", (unsigned)granted_qos[i]);
+            connection_log_add(client->log, CONN_LOG_ERROR, buf);
+        } else {
+            snprintf(buf, sizeof(buf), "Subscription to '%s' acknowledged (QoS %d)", topic[0] ? topic : "?",
+                     granted_qos[i]);
+            connection_log_add(client->log, CONN_LOG_INFO, buf);
+        }
+    }
 }
 
 MqttClient* mqtt_client_new(SpscQueue* msg_queue, ConnectionLog* log) {
@@ -225,6 +267,9 @@ bool mqtt_client_connect(MqttClient* client, const MqttConnectOpts* opts) {
     if (opts->transport == 1) {
 #if LIBMOSQUITTO_VERSION_NUMBER >= 2001000
         mosquitto_int_option(client->mosq, MOSQ_OPT_TRANSPORT, MOSQ_T_WEBSOCKETS);
+        if (opts->ws_path && opts->ws_path[0]) {
+            mosquitto_string_option(client->mosq, MOSQ_OPT_HTTP_PATH, opts->ws_path);
+        }
 #else
         connection_log_add(client->log, CONN_LOG_WARN,
                            "WebSocket transport requires libmosquitto >= 2.1 - using TCP instead");
@@ -367,11 +412,13 @@ bool mqtt_client_subscribe(MqttClient* client, const MqttSubscribeOpts* opts) {
     pthread_mutex_unlock(&client->sub_mutex);
 
     if (atomic_load(&client->conn_state) == MQTT_CS_CONNECTED) {
-        int rc = mosquitto_subscribe(client->mosq, NULL, opts->topic_filter, opts->qos);
-        if (rc == MOSQ_ERR_SUCCESS) {
+        pthread_mutex_lock(&client->sub_mutex);
+        int rc = send_subscribe(client, client->mosq, opts->topic_filter, opts->qos);
+        pthread_mutex_unlock(&client->sub_mutex);
+        if (rc != MOSQ_ERR_SUCCESS) {
             char buf[512];
-            snprintf(buf, sizeof(buf), "Subscribed to %s (QoS %d)", opts->topic_filter, opts->qos);
-            connection_log_add(client->log, CONN_LOG_INFO, buf);
+            snprintf(buf, sizeof(buf), "Subscribe to '%s' failed: %s", opts->topic_filter, mosquitto_strerror(rc));
+            connection_log_add(client->log, CONN_LOG_ERROR, buf);
         }
     }
 
