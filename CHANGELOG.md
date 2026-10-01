@@ -2,6 +2,29 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-09-30
+
+### Added
+
+- Caret-aware text editing in the profile dialog, publish panel and topic/message filter
+- Scrollable connection log panel
+- WebSocket path field in the broker profile
+- The connection log reports a subscription the broker denies (MQTT 3.1.1 `0x80` or any MQTT 5 failure reason code) as an error
+
+### Changed
+
+- Fonts are rasterized at the display's physical pixel size and text is drawn on whole pixels
+- The "messages dropped" warning in the connection log is throttled to one line per 5 seconds
+- `build-dmg.sh` uses `diskutil image create` instead of the deprecated `hdiutil create`
+
+### Fixed
+
+- Text looked pixelated on 1x displays
+- Typed non-ASCII characters in text fields were garbled
+- A failed subscribe request was silently ignored
+- JSON detection: `strtod` stopping at the first unparseable byte, and whitespace is now trimmed before deciding whether a payload is JSON
+- Build failure on clang 23 (`-Wunused-but-set-global`)
+
 ## [1.0.4] - 2026-09-16
 
 ### Added
