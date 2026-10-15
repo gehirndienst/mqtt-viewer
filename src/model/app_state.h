@@ -40,12 +40,6 @@ typedef struct {
     char topic_filter[256];
     uint8_t qos;
     SubState state;
-    uint64_t message_count;
-    uint64_t bytes_total;
-    float throughput;
-    uint64_t window_timestamps[128]; // sliding window for throughput calc
-    uint32_t window_head;
-    uint32_t window_count;
 } Subscription;
 
 typedef struct {

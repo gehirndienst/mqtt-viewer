@@ -12,7 +12,6 @@
 #include "model/app_state.h"
 #include "model/csv_export.h"
 #include "model/message_buf.h"
-#include "model/subscription.h"
 #include "model/util.h"
 #include "platform/db.h"
 #include "platform/export_path.h"
@@ -219,23 +218,6 @@ int main(void) {
                 free(m->payload);
                 m->payload = NULL;
 
-                // track per-subscription stats
-                for (int si = 0; si < state.subscription_count; si++) {
-                    Subscription* sub = &state.subscriptions[si];
-                    if (mqtt_topic_matches(sub->topic_filter, rec.topic)) {
-                        sub->message_count++;
-                        sub->bytes_total += rec.payload_len;
-                        // Sliding window for throughput
-                        if (sub->window_count < 128) {
-                            uint32_t wi = (sub->window_head + sub->window_count) % 128;
-                            sub->window_timestamps[wi] = rec.timestamp_us;
-                            sub->window_count++;
-                        } else {
-                            sub->window_timestamps[sub->window_head] = rec.timestamp_us;
-                            sub->window_head = (sub->window_head + 1) % 128;
-                        }
-                    }
-                }
                 state.total_messages++;
             } else {
                 free(m->payload);
@@ -295,13 +277,6 @@ int main(void) {
             state.total_messages = 0;
             state.topic_filter[0] = '\0';
             state.topic_filter_focused = false;
-            for (int si = 0; si < state.subscription_count; si++) {
-                state.subscriptions[si].message_count = 0;
-                state.subscriptions[si].bytes_total = 0;
-                state.subscriptions[si].throughput = 0.0f;
-                state.subscriptions[si].window_head = 0;
-                state.subscriptions[si].window_count = 0;
-            }
             state.profile_dialog_open = true;
         }
 
@@ -339,19 +314,6 @@ int main(void) {
             state.conn_state = CONN_RECONNECTING;
         } else {
             state.conn_state = CONN_DISCONNECTED;
-        }
-
-        // rolling throughput for each subscription
-        double now_sec = (double)util_now_us() * 1e-6;
-        for (int si = 0; si < state.subscription_count; si++) {
-            Subscription* sub = &state.subscriptions[si];
-            uint32_t in_window = 0;
-            for (uint32_t wi = 0; wi < sub->window_count; wi++) {
-                uint32_t idx = (sub->window_head + wi) % 128;
-                double ts_sec = (double)sub->window_timestamps[idx] / 1e6;
-                if (now_sec - ts_sec <= 10.0) in_window++;
-            }
-            sub->throughput = (float)in_window / 10.0f;
         }
 
         // NOTE: Periodic db flush: save new messages every 5 seconds. Trim runs alongside save so each call deletes

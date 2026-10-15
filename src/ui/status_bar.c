@@ -12,21 +12,13 @@
 
 void status_bar_render(AppState* state) {
     static char stats[128] = "";
-    static char sub_stats[3][128] = {"", "", ""};
     static float s_upd_timer = 0.0f;
-    static int show_count = 0;
 
     s_upd_timer -= GetFrameTime();
     if (s_upd_timer <= 0.0f) {
         s_upd_timer = 1.0f;
-        show_count = state->subscription_count < 3 ? state->subscription_count : 3;
         snprintf(stats, sizeof(stats), "%u topics \xc2\xb7 %lu msgs \xc2\xb7 %.1f msg/s", state->total_topics,
                  (unsigned long)state->total_messages, state->msgs_per_sec);
-        for (int i = 0; i < show_count; i++) {
-            Subscription* sub = &state->subscriptions[i];
-            snprintf(sub_stats[i], sizeof(sub_stats[i]), " | sub %s: %llu msgs \xc2\xb7 %.1f/s", sub->topic_filter,
-                     (unsigned long long)sub->message_count, sub->throughput);
-        }
     }
 
     CLAY(CLAY_ID("StatusBar"),
@@ -43,18 +35,6 @@ void status_bar_render(AppState* state) {
          }) {
         Clay_String stats_str = ui_utils_clay_string(stats);
         CLAY_TEXT(stats_str, THEME_TEXT_SMALL);
-
-        if (show_count > 0) {
-            for (int i = 0; i < show_count; i++) {
-                CLAY(CLAY_IDI("SBDiv", (uint32_t)i),
-                     {
-                         .layout = {.sizing = {CLAY_SIZING_FIXED(1), CLAY_SIZING_FIXED(12)}},
-                         .backgroundColor = THEME_BORDER,
-                     }) {}
-                Clay_String ss = ui_utils_clay_string(sub_stats[i]);
-                CLAY_TEXT(ss, THEME_TEXT_SMALL);
-            }
-        }
 
         CLAY(CLAY_ID("StatusBarSpacer"), {.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}}}) {}
 
