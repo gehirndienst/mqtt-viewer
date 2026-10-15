@@ -1083,19 +1083,32 @@ void inspector_widget_render(AppState* state) {
                  }) {
                 CLAY_TEXT(CLAY_STRING("Latest Value"), THEME_TEXT_SMALL);
 
-                if (pl_len > 0) {
-                    // Show the first ~150 chars only - full payload is in the tabs below
-                    static char s_latest_excerpt[160];
-                    util_preview_build_compact(s_latest_excerpt, sizeof(s_latest_excerpt), pl, pl_len);
-                    Clay_String val_str = ui_utils_clay_string(s_latest_excerpt);
-                    CLAY_TEXT(val_str,
-                              CLAY_TEXT_CONFIG({
-                                  .fontSize = 13,
-                                  .fontId = FONT_MONO,
-                                  .textColor = THEME_TEXT_PRIMARY,
-                              }));
-                } else {
-                    CLAY_TEXT(CLAY_STRING("(empty)"), THEME_TEXT_SMALL);
+                CLAY(CLAY_ID("LatestExcerpt"),
+                     {
+                         .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
+                         .clip = {.horizontal = true},
+                     }) {
+                    if (pl_len > 0) {
+                        // Show the first ~150 chars only - full payload is in the tabs below
+                        static char s_latest_excerpt[160];
+                        util_preview_build_compact(s_latest_excerpt, sizeof(s_latest_excerpt), pl, pl_len);
+                        Clay_String val_str = ui_utils_clay_string(s_latest_excerpt);
+                        CLAY_TEXT(val_str,
+                                  CLAY_TEXT_CONFIG({
+                                      .fontSize = 13,
+                                      .fontId = FONT_MONO,
+                                      .textColor = THEME_TEXT_PRIMARY,
+                                      .wrapMode = CLAY_TEXT_WRAP_NONE,
+                                  }));
+                    } else {
+                        CLAY_TEXT(CLAY_STRING("(empty)"),
+                                  CLAY_TEXT_CONFIG({
+                                      .fontSize = 13,
+                                      .fontId = FONT_MONO,
+                                      .textColor = THEME_TEXT_DIM,
+                                      .wrapMode = CLAY_TEXT_WRAP_NONE,
+                                  }));
+                    }
                 }
 
                 Clay_String lm_str = ui_utils_clay_string(s_last_meta);
