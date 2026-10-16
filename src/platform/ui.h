@@ -38,6 +38,13 @@ bool ui_init(UiCtx* ctx);
 void ui_shutdown(UiCtx* ctx);
 
 /**
+ * @brief Detect display changes (sleep/wake, monitor move) and re-bake fonts for the new DPI scale.
+ *
+ * Call once per frame, outside the Clay layout pass. Logs screen/render size changes to stderr.
+ */
+void ui_check_display_change(void);
+
+/**
  * @brief Return the Raylib Font for a given font ID.
  * @param font_id  FONT_DEFAULT (0) or FONT_MONO (1), defined in ui/theme.h.
  */

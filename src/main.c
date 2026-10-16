@@ -102,6 +102,7 @@ int main(void) {
         if (ui_tick_seconds < 0.25f) ui_tick_seconds = 0.25f;
         uint64_t ui_tick_us = (uint64_t)(ui_tick_seconds * 1.0e6f);
 
+        ui_check_display_change();
         float width = (float)GetScreenWidth();
         float height = (float)GetScreenHeight();
 

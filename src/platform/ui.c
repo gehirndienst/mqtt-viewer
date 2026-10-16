@@ -7,10 +7,13 @@
 #include "clay.h"
 #include "raylib.h"
 
+#include "platform/log.h"
 #include "platform/ui.h"
 #include "ui/theme.h"
 
 static Font s_fonts[2];
+static float s_font_scale = 0.0f; // DPI scale the font atlases were baked for
+static int s_last_screen_w = 0, s_last_screen_h = 0, s_last_render_w = 0, s_last_render_h = 0;
 
 static const unsigned char s_font_default_data[] = {
 #embed "../../resources/fonts/Inter-Regular.ttf"
@@ -57,6 +60,22 @@ static void build_codepoints(void) {
     for (int i = 0; i < (int)(sizeof(extras) / sizeof(extras[0])); i++) s_codepoints[s_codepoint_count++] = extras[i];
 }
 
+static float current_dpi_scale(void) {
+    Vector2 dpi = GetWindowScaleDPI();
+    return dpi.x > 0.5f ? dpi.x : 1.0f;
+}
+
+static void load_fonts(float scale) {
+    int atlas_px = (int)(16.0f * scale + 0.5f);
+    s_fonts[FONT_DEFAULT] = LoadFontFromMemory(".ttf", s_font_default_data, (int)sizeof(s_font_default_data), atlas_px,
+                                               s_codepoints, s_codepoint_count);
+    s_fonts[FONT_MONO] = LoadFontFromMemory(".ttf", s_font_mono_data, (int)sizeof(s_font_mono_data), atlas_px,
+                                            s_codepoints, s_codepoint_count);
+    SetTextureFilter(s_fonts[FONT_DEFAULT].texture, TEXTURE_FILTER_BILINEAR);
+    SetTextureFilter(s_fonts[FONT_MONO].texture, TEXTURE_FILTER_BILINEAR);
+    s_font_scale = scale;
+}
+
 bool ui_init(UiCtx* ctx) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT);
     InitWindow(1280, 800, "MQTT Viewer");
@@ -65,15 +84,7 @@ bool ui_init(UiCtx* ctx) {
 
     build_codepoints();
 
-    Vector2 dpi = GetWindowScaleDPI();
-    float scale = dpi.x > 0.5f ? dpi.x : 1.0f;
-    int atlas_px = (int)(16.0f * scale + 0.5f);
-    s_fonts[FONT_DEFAULT] = LoadFontFromMemory(".ttf", s_font_default_data, (int)sizeof(s_font_default_data), atlas_px,
-                                               s_codepoints, s_codepoint_count);
-    s_fonts[FONT_MONO] = LoadFontFromMemory(".ttf", s_font_mono_data, (int)sizeof(s_font_mono_data), atlas_px,
-                                            s_codepoints, s_codepoint_count);
-    SetTextureFilter(s_fonts[FONT_DEFAULT].texture, TEXTURE_FILTER_BILINEAR);
-    SetTextureFilter(s_fonts[FONT_MONO].texture, TEXTURE_FILTER_BILINEAR);
+    load_fonts(current_dpi_scale());
 
     Clay_SetMaxElementCount(32768);
     uint64_t clay_mem_size = Clay_MinMemorySize();
@@ -93,6 +104,26 @@ void ui_shutdown(UiCtx* ctx) {
     free(ctx->clay_mem);
     ctx->clay_mem = NULL;
     CloseWindow();
+}
+
+void ui_check_display_change(void) {
+    int sw = GetScreenWidth(), sh = GetScreenHeight(), rw = GetRenderWidth(), rh = GetRenderHeight();
+    if (sw != s_last_screen_w || sh != s_last_screen_h || rw != s_last_render_w || rh != s_last_render_h) {
+        LOG_INFO("display: screen %dx%d render %dx%d dpi scale %.2f (fonts baked for %.2f)", sw, sh, rw, rh,
+                 current_dpi_scale(), s_font_scale);
+        s_last_screen_w = sw;
+        s_last_screen_h = sh;
+        s_last_render_w = rw;
+        s_last_render_h = rh;
+    }
+
+    float scale = current_dpi_scale();
+    if (scale != s_font_scale) {
+        LOG_INFO("dpi scale changed %.2f -> %.2f, reloading fonts", s_font_scale, scale);
+        UnloadFont(s_fonts[FONT_DEFAULT]);
+        UnloadFont(s_fonts[FONT_MONO]);
+        load_fonts(scale);
+    }
 }
 
 Font ui_get_font(int font_id) {
