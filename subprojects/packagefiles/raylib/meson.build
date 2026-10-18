@@ -1,4 +1,4 @@
-project('raylib', 'c', version: '6.0')
+project('raylib', 'c', version: '6.2')
 cc = meson.get_compiler('c')
 raylib_cargs = [
     '-DPLATFORM_DESKTOP', '-DGRAPHICS_API_OPENGL_33',
@@ -9,7 +9,7 @@ raylib_deps = []
 if host_machine.system() == 'darwin'
     raylib_deps += dependency('appleframeworks', modules: [
         'OpenGL', 'Cocoa', 'IOKit', 'CoreFoundation',
-        'CoreGraphics', 'CoreServices', 'Foundation', 'AppKit',
+        'CoreGraphics', 'CoreServices', 'Foundation', 'AppKit', 'QuartzCore',
     ])
 elif host_machine.system() == 'linux'
     raylib_deps += [

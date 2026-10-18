@@ -1,9 +1,9 @@
 [wrap-file]
-directory = raylib-6.0
+directory = raylib-6.2
 
-source_url = https://github.com/raysan5/raylib/archive/refs/tags/6.0.tar.gz
-source_filename = raylib-6.0.tar.gz
-source_hash = 2b3ee1e2120c7a0796b33062c7e9a694dd8a8caa56a96319ac8c8ecf54a90d0b
+source_url = https://github.com/raysan5/raylib/archive/refs/tags/6.2.tar.gz
+source_filename = raylib-6.2.tar.gz
+source_hash = df7a13129b1bec9e73a6962efff170beba310ee6eab8f94cd000b7316b4db5ee
 patch_directory = raylib
 
 [provide]
