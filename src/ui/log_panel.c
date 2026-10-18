@@ -294,8 +294,8 @@ void log_panel_render(AppState* state) {
     }
 
     // Keyboard only when the log owns it - otherwise Ctrl+A would fight the text fields' select-all
-    bool keyboard_ours =
-        state->log_focused && !state->profile_dialog_open && !state->publish_panel_open && !state->topic_filter_focused;
+    bool keyboard_ours = state->log_focused && !state->profile_dialog_open && !state->about_dialog_open &&
+        !state->publish_panel_open && !state->topic_filter_focused;
     if (keyboard_ours && s_row_count > 0) {
         bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL) || IsKeyDown(KEY_LEFT_SUPER) ||
             IsKeyDown(KEY_RIGHT_SUPER);

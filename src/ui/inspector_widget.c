@@ -894,7 +894,7 @@ static void render_frozen_inspector(AppState* state) {
     }
 
     if (IsKeyPressed(KEY_ESCAPE) && !state->profile_dialog_open && !state->publish_panel_open &&
-        !state->context_menu_open) {
+        !state->context_menu_open && !state->about_dialog_open) {
         close_requested = true;
     }
     if (Clay_PointerOver(Clay_GetElementId(CLAY_STRING("InspectorCloseBtn"))) &&
@@ -1236,7 +1236,7 @@ void inspector_widget_render(AppState* state) {
 
     // Close on Escape only when no other panel is consuming keyboard input
     if (IsKeyPressed(KEY_ESCAPE) && !state->profile_dialog_open && !state->publish_panel_open &&
-        !state->context_menu_open) {
+        !state->context_menu_open && !state->about_dialog_open) {
         close_requested = true;
     }
 

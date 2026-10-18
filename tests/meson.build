@@ -44,6 +44,12 @@ test_sub = executable('test_subscription',
 )
 test('subscription', test_sub)
 
+test_version = executable('test_version',
+    'test_version.c', '../src/model/version.c', '../src/model/util.c',
+    include_directories : test_inc
+)
+test('version', test_version)
+
 test_textinput = executable('test_text_input',
     'test_text_input.c',
     include_directories : test_inc,

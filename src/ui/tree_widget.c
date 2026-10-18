@@ -507,7 +507,8 @@ void tree_widget_render(AppState* state, Db* db) {
     s_filter_was_focused = state->topic_filter_focused;
 
     // Lose focus when another panel opens
-    if (state->publish_panel_open || state->context_menu_open || state->profile_dialog_open) {
+    if (state->publish_panel_open || state->context_menu_open || state->profile_dialog_open ||
+        state->about_dialog_open) {
         state->topic_filter_focused = false;
         state->topic_filter_all_selected = false;
     }

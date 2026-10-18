@@ -70,6 +70,7 @@ typedef struct {
     int log_sel_anchor;
     int log_sel_cursor;
     bool profile_dialog_open;
+    bool about_dialog_open;
     char topic_filter[256];
     bool topic_filter_focused;
     bool topic_filter_all_selected;

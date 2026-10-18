@@ -17,6 +17,7 @@
 #include "platform/export_path.h"
 #include "platform/log.h"
 #include "platform/ui.h"
+#include "ui/about_dialog.h"
 #include "ui/chart_panel.h"
 #include "ui/context_menu.h"
 #include "ui/inspector_widget.h"
@@ -120,7 +121,8 @@ int main(void) {
 
         // NOTE: Don't intercept wheel when profile dialog, publish panel, context menu is open above the tree -
         // they host their own scroll containers and need Clay's normal routing
-        bool modal_open = state.profile_dialog_open || state.publish_panel_open || state.context_menu_open;
+        bool modal_open =
+            state.profile_dialog_open || state.about_dialog_open || state.publish_panel_open || state.context_menu_open;
         if (wheel_raw != 0.0f && !modal_open) {
             Clay_ElementData panel = Clay_GetElementData(CLAY_ID("TreePanel"));
             if (panel.found) {
@@ -155,8 +157,8 @@ int main(void) {
             }
         } else if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_L)) {
             state.log_panel_open = !state.log_panel_open;
-        } else if (IsKeyPressed(KEY_P) && !state.profile_dialog_open && !state.publish_panel_open &&
-                   !state.topic_filter_focused) {
+        } else if (IsKeyPressed(KEY_P) && !state.profile_dialog_open && !state.about_dialog_open &&
+                   !state.publish_panel_open && !state.topic_filter_focused) {
             state.profile_dialog_open = !state.profile_dialog_open;
         }
 
@@ -384,6 +386,7 @@ int main(void) {
         context_menu_render(&state);
         profile_dialog_render(&state, db, mqtt);
         publish_panel_render(&state, mqtt);
+        about_dialog_render(&state);
 
         Clay_RenderCommandArray cmds = Clay_EndLayout(dt);
 

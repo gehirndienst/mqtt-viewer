@@ -10,6 +10,8 @@ cc = meson.get_compiler('c')
 # -std=c23 puts glibc in strict-ANSI mode hiding POSIX symbols eg strtok_r, clock_gettime etc
 add_project_arguments('-D_GNU_SOURCE', language : 'c')
 
+add_project_arguments('-DAPP_VERSION="@0@"'.format(meson.project_version()), language : 'c')
+
 # check if embedded resources are supported by the compiler (C23 #embed)
 if not cc.compiles('static const unsigned char d[] = {\n#embed __FILE__\n};\nint main(void) { return d[0]; }', name : 'C23 #embed support')
     error('C compiler lacks C23 #embed support - use clang >= 19 or GCC >= 15 (e.g. CC=clang meson setup ...)')
@@ -42,6 +44,7 @@ src_model = files(
     'src/model/util.c',
     'src/model/json_pp.c',
     'src/model/cbor_pp.c',
+    'src/model/version.c',
 )
 
 src_core = files(
@@ -57,6 +60,7 @@ src_ui = files(
     'src/ui/profile_dialog.c',
     'src/ui/context_menu.c',
     'src/ui/log_panel.c',
+    'src/ui/about_dialog.c',
     'src/ui/menu_bar.c',
     'src/ui/status_bar.c',
     'src/ui/ui_util.c',
@@ -68,6 +72,7 @@ src_platform = files(
     'src/platform/db.c',
     'src/platform/ui.c',
     'src/platform/export_path.c',
+    'src/platform/update_check.c',
 )
 
 src_main = files('src/main.c')

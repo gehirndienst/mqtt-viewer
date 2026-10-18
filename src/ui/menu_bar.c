@@ -62,6 +62,19 @@ void menu_bar_render(AppState* state) {
                           .textColor = state->log_panel_open ? THEME_TEXT_PRIMARY : THEME_TEXT_SECONDARY,
                       }));
         }
+        CLAY(CLAY_ID("MenuAboutBtn"),
+             {
+                 .layout = {.padding = {8, 8, 4, 4}},
+                 .backgroundColor = THEME_BG_BUTTON,
+                 .cornerRadius = CLAY_CORNER_RADIUS(3),
+             }) {
+            CLAY_TEXT(CLAY_STRING("About"),
+                      CLAY_TEXT_CONFIG({
+                          .fontSize = 14,
+                          .fontId = FONT_DEFAULT,
+                          .textColor = THEME_TEXT_SECONDARY,
+                      }));
+        }
         CLAY(CLAY_ID("MenuBarSpacer"), {.layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}}}) {}
 
         if (broker_buf[0] != '\0') {
@@ -111,6 +124,10 @@ void menu_bar_render(AppState* state) {
                           }));
             }
         }
+    }
+
+    if (Clay_PointerOver(Clay_GetElementId(CLAY_STRING("MenuAboutBtn"))) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        state->about_dialog_open = true;
     }
 
     if (Clay_PointerOver(Clay_GetElementId(CLAY_STRING("MenuLogBtn"))) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
