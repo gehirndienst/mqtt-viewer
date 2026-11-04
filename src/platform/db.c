@@ -593,8 +593,10 @@ int db_search_messages(Db* db, const char* query, MessageRecord* results, int ma
 bool db_trim_messages(Db* db, int max_rows) {
     if (!db || max_rows < 0) return false;
 
-    const char* sql = "DELETE FROM messages WHERE id NOT IN ("
-                      "  SELECT id FROM messages ORDER BY timestamp_us DESC LIMIT ?1"
+    // NOTE: id is an AUTOINCREMENT rowid, so insertion order stands in for timestamp order; the OFFSET seek walks the
+    // rowid b-tree instead of sorting the table (the old NOT IN form was a full-table sort on every call)
+    const char* sql = "DELETE FROM messages WHERE id <= ("
+                      "  SELECT id FROM messages ORDER BY id DESC LIMIT 1 OFFSET ?1"
                       ");";
 
     sqlite3_stmt* stmt = NULL;
@@ -634,25 +636,29 @@ bool db_delete_topic_messages(Db* db, const char* topic) {
     return true;
 }
 
-void db_flush_history(Db* db, MessageBuf* history, uint64_t* saved) {
+bool db_flush_history_step(Db* db, MessageBuf* history, uint64_t* saved, uint32_t max_rows) {
     static MessageRecord batch[256];
 
     uint64_t pushed = message_buf_generation(history);
     uint64_t window_start = pushed - message_buf_count(history);
     if (*saved < window_start) *saved = window_start;
-    if (*saved >= pushed) return;
+    if (*saved >= pushed) return false;
 
-    while (*saved < pushed) {
-        uint32_t new_count = (uint32_t)(pushed - *saved);
-        if (new_count > 256) new_count = 256;
-        uint32_t start = (uint32_t)(*saved - window_start);
-        for (uint32_t i = 0; i < new_count; i++) {
-            const MessageRecord* r = message_buf_get(history, start + i);
-            if (r) batch[i] = *r;
-        }
-        db_save_messages(db, batch, (int)new_count);
-        *saved += new_count;
+    uint32_t new_count = (uint32_t)(pushed - *saved);
+    if (new_count > max_rows) new_count = max_rows;
+    if (new_count > 256) new_count = 256;
+    uint32_t start = (uint32_t)(*saved - window_start);
+    for (uint32_t i = 0; i < new_count; i++) {
+        const MessageRecord* r = message_buf_get(history, start + i);
+        if (r) batch[i] = *r;
     }
+    db_save_messages(db, batch, (int)new_count);
+    *saved += new_count;
+    return *saved < pushed;
+}
+
+void db_flush_history(Db* db, MessageBuf* history, uint64_t* saved) {
+    while (db_flush_history_step(db, history, saved, 256)) {}
     db_trim_messages(db, 10000);
 }
 

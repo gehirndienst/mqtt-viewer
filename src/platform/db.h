@@ -104,6 +104,14 @@ bool db_delete_topic_messages(Db* db, const char* topic);
 void db_flush_history(Db* db, MessageBuf* history, uint64_t* saved);
 
 /**
+ * @brief Persist at most @p max_rows (capped at one 256-row batch) of the unsaved history, without trimming.
+ *
+ * Lets the UI thread spread a large backlog over many frames instead of stalling on one big write.
+ * @return true if unsaved records remain.
+ */
+bool db_flush_history_step(Db* db, MessageBuf* history, uint64_t* saved, uint32_t max_rows);
+
+/**
  * @brief Full-text search over all stored messages (topic + payload), ranked by relevance.
  *
  * @p query's words must all appear somewhere in the topic or payload (any order), with the

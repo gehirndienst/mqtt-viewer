@@ -319,12 +319,15 @@ int main(void) {
             state.conn_state = CONN_DISCONNECTED;
         }
 
-        // NOTE: Periodic db flush: save new messages every 5 seconds. Trim runs alongside save so each call deletes
-        // ~256 rows (one save batch's worth) - keeping per-call delete work bounded
-        save_timer += dt;
-        if (db && save_timer >= 5.0f) {
-            save_timer = 0.0f;
-            db_flush_history(db, &state.global_history, &history_saved);
+        // NOTE: Persist history one batch per frame: a 5s backlog written in one go stalled the UI for ~0.5s
+        // Trim runs on its own 1s cadence so each call deletes only a small slice
+        if (db) {
+            db_flush_history_step(db, &state.global_history, &history_saved, 128);
+            save_timer += dt;
+            if (save_timer >= 1.0f) {
+                save_timer = 0.0f;
+                db_trim_messages(db, 10000);
+            }
         }
 
         // build layout

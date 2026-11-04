@@ -190,6 +190,58 @@ TEST(flush_history_tracks_ring_generation_across_clear_and_eviction) {
     db_close(db);
 }
 
+TEST(flush_history_step_writes_at_most_max_rows_and_reports_remaining) {
+    Db* db = db_open(":memory:");
+    ASSERT_NOT_NULL(db);
+    MessageBuf ring;
+    message_buf_init(&ring, 16);
+    uint64_t saved = 0;
+
+    MessageRecord a = make_record("t/a", "a");
+    for (int i = 0; i < 10; i++) message_buf_push(&ring, &a);
+
+    ASSERT_TRUE(db_flush_history_step(db, &ring, &saved, 4));
+    ASSERT_EQ(saved_rows(db), 4);
+    ASSERT_TRUE(db_flush_history_step(db, &ring, &saved, 4));
+    ASSERT_EQ(saved_rows(db), 8);
+    ASSERT_TRUE(!db_flush_history_step(db, &ring, &saved, 4));
+    ASSERT_EQ(saved_rows(db), 10);
+    ASSERT_TRUE(!db_flush_history_step(db, &ring, &saved, 4));
+    ASSERT_EQ(saved_rows(db), 10);
+
+    message_buf_destroy(&ring);
+    db_close(db);
+}
+
+TEST(trim_keeps_the_newest_rows_by_insertion_order) {
+    Db* db = db_open(":memory:");
+    ASSERT_NOT_NULL(db);
+
+    char topic[16];
+    for (int i = 0; i < 10; i++) {
+        snprintf(topic, sizeof(topic), "t/%d", i);
+        MessageRecord r = make_record(topic, "x");
+        r.timestamp_us = (uint64_t)(1000 + i);
+        ASSERT_TRUE(db_save_messages(db, &r, 1));
+    }
+
+    ASSERT_TRUE(db_trim_messages(db, 4));
+    MessageRecord out[16];
+    int n = db_load_messages(db, out, 16);
+    ASSERT_EQ(n, 4);
+    ASSERT_STR_EQ(out[0].topic, "t/9");
+    ASSERT_STR_EQ(out[3].topic, "t/6");
+    for (int i = 0; i < n; i++) free(out[i].payload);
+
+    // already within the limit: nothing more to delete
+    ASSERT_TRUE(db_trim_messages(db, 4));
+    ASSERT_EQ(saved_rows(db), 4);
+    ASSERT_TRUE(db_trim_messages(db, 100));
+    ASSERT_EQ(saved_rows(db), 4);
+
+    db_close(db);
+}
+
 TEST(profile_subscriptions_round_trip_through_json) {
     Db* db = db_open(":memory:");
     ASSERT_NOT_NULL(db);
@@ -253,6 +305,8 @@ int main(void) {
     RUN(deleted_messages_are_removed_from_the_index);
     RUN(results_ordered_by_relevance_and_capped_at_max_count);
     RUN(flush_history_tracks_ring_generation_across_clear_and_eviction);
+    RUN(flush_history_step_writes_at_most_max_rows_and_reports_remaining);
+    RUN(trim_keeps_the_newest_rows_by_insertion_order);
     RUN(profile_subscriptions_round_trip_through_json);
     RUN(delete_topic_messages_removes_only_that_topic);
     printf("all tests passed\n");
