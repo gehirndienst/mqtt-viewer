@@ -316,7 +316,7 @@ static void render_node(AppState* state, TopicNode* node, int depth, uint64_t no
             } else if (has_children) {
                 state->selected_topic = node;
                 state->inspector_frozen = false;
-                if (!node->expanded) node->expanded = true;
+                node->expanded = !node->expanded;
             }
         }
         if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
