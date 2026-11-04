@@ -37,7 +37,7 @@ jobs:
     - name: Install deps macOS
       if: runner.os == 'macOS'
       run: |
-        brew install llvm meson ninja mosquitto cjson dylibbundler
+        brew install llvm meson ninja mosquitto cjson dylibbundler create-dmg
         echo "CC=$(brew --prefix llvm)/bin/clang" >> "$GITHUB_ENV"
 
     - name: Install deps Linux

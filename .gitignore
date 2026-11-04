@@ -16,3 +16,4 @@ docs/*
 tests/env
 *ROADMAP.md
 subprojects/clay/
+packaging/make-assets.sh
