@@ -1,9 +1,14 @@
 project(
   'mqtt-viewer',
   'c',
-version : '1.1.0',
+  version : '1.1.0',
   meson_version : '>=1.10.0',
-  default_options : ['c_std=gnu23,c23', 'warning_level=3', 'werror=true', 'force_fallback_for=raylib']
+  default_options : [
+    'c_std=gnu23,c23',
+    'warning_level=3',
+    'werror=true',
+    'force_fallback_for=raylib',
+  ],
 )
 
 cc = meson.get_compiler('c')
@@ -23,7 +28,6 @@ endif
 
 # Dependencies
 clay_dep = dependency('clay', fallback : ['clay', 'clay_dep'])
-# no warning for raylib
 raylib_dep = dependency('raylib', fallback : ['raylib', 'raylib_dep'], default_options : ['warning_level=1'])
 sqlite3_dep = dependency('sqlite3', fallback : ['sqlite3', 'sqlite3_dep'], default_options : ['werror=false'])
 
