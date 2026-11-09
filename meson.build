@@ -1,14 +1,9 @@
 project(
   'mqtt-viewer',
   'c',
-  version : '1.0.5',
+version : '1.1.0',
   meson_version : '>=1.10.0',
-  default_options : [
-    'c_std=gnu23,c23',
-    'warning_level=3',
-    'werror=true',
-    'force_fallback_for=raylib',
-  ],
+  default_options : ['c_std=gnu23,c23', 'warning_level=3', 'werror=true', 'force_fallback_for=raylib']
 )
 
 cc = meson.get_compiler('c')
