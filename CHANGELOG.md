@@ -2,6 +2,32 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-09
+
+### Added
+
+- Retained-message deletion from the inspector's button or the topic context menu's (whole subtree). Publishes an empty retained message; the R badge clears only when the broker echoes it back
+- About dialog with version, build date, author and a manual "Check for updates" against the latest GitHub release with curl
+- DMG-application drag-and-drop to /Applications and artwork for the app icon and DMG background
+- Charts show the topic name above each plot
+
+### Changed
+
+- Chart grid follows the data: the Y range snaps to round values with one labelled grid line per step
+- New-message highlights in the topic tree use much darker purple shades to keep busy topics readable
+- Status bar shows only global stats; per-subscription counters removed
+- Raylib updated to 6.2; the pinned wrap is now always used instead of a system raylib
+- Improved meson.build scripts
+
+### Fixed
+
+- UI no longer freezes for up to a second under high message rates: history is written to the database one small batch per frame, and old rows are trimmed by rowid every second instead of with a full-table sort every five seconds
+- Inspector no longer flickers on frequent updates: the latest-value block keeps a constant height
+- Fonts are re-baked when the display scale changes (sleep/wake, moving between displays)
+- Charts are closed on disconnect instead of lingering with stale data
+- Topic paths preserve empty levels (such as `a//b` and `/a/`); unsupported names are rejected instead of silently truncated before publishing
+- Clicking a parent topic's name without messages now toggles expansion and collapse instead of only expanding it
+
 ## [1.0.5] - 2026-09-30
 
 ### Added
