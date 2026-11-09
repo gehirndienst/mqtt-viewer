@@ -21,6 +21,15 @@
 #define CHART_PANEL_HEIGHT_PX 280.0f
 #define CHART_CARD_HEADER_PX 18
 
+/// grid step roughly target divisions over range
+static double chart_grid_step(double range, int target) {
+    double raw = range / target;
+    double mag = pow(10.0, floor(log10(raw)));
+    double f = raw / mag;
+    double nf = f < 1.5 ? 1.0 : f < 3.0 ? 2.0 : f < 7.0 ? 5.0 : 10.0;
+    return nf * mag;
+}
+
 static void chart_panel_grid(int n, int* cols, int* rows) {
     if (n <= 1) {
         *cols = 1;
@@ -121,7 +130,19 @@ void chart_panel_render(AppState* state) {
                              .border = {.width = CLAY_BORDER_OUTSIDE(1), .color = THEME_BORDER},
                              .cornerRadius = CLAY_CORNER_RADIUS(3),
                          }) {
-                        // Header: topic/path + current value + remove x
+                        // Topic name, clipped at the card edge
+                        CLAY(CLAY_IDI("ChartTopic", (uint32_t)si),
+                             {
+                                 .layout = {.sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)}},
+                                 .clip = {.horizontal = true},
+                             }) {
+                            CLAY_TEXT(ui_utils_clay_string(ser->topic),
+                                      CLAY_TEXT_CONFIG({.fontSize = 13,
+                                                        .fontId = FONT_MONO,
+                                                        .textColor = THEME_TEXT_SECONDARY,
+                                                        .wrapMode = CLAY_TEXT_WRAP_NONE}));
+                        }
+                        // Header: JSON path + current value + remove x
                         CLAY(CLAY_IDI("ChartHdr", (uint32_t)si),
                              {
                                  .layout =
@@ -134,7 +155,7 @@ void chart_panel_render(AppState* state) {
                             const char* label = ser->dot_path[0] ? ser->dot_path : "(payload)";
                             Clay_String pl = ui_utils_clay_string(label);
                             CLAY_TEXT(pl,
-                                      CLAY_TEXT_CONFIG({.fontSize = 11,
+                                      CLAY_TEXT_CONFIG({.fontSize = 13,
                                                         .fontId = FONT_MONO,
                                                         .textColor = THEME_TEXT_PRIMARY,
                                                         .wrapMode = CLAY_TEXT_WRAP_NONE}));
@@ -191,12 +212,18 @@ void chart_panel_draw(AppState* state) {
         if (ser->y_dirty) chart_series_recompute_minmax(ser);
         float y_min = (float)ser->y_min;
         float y_max = (float)ser->y_max;
-        float y_range = y_max - y_min;
-        if (y_range < 1.0e-9f) {
+        if (y_max - y_min < 1.0e-9f) {
             y_min -= 0.5f;
             y_max += 0.5f;
-            y_range = 1.0f;
         }
+
+        // Snap the Y range outward to "nice" grid values so grid lines sit on round numbers
+        double y_step = chart_grid_step((double)(y_max - y_min), 4);
+        int tick_lo = (int)floor((double)y_min / y_step + 1.0e-9);
+        int tick_hi = (int)ceil((double)y_max / y_step - 1.0e-9);
+        y_min = (float)(tick_lo * y_step);
+        y_max = (float)(tick_hi * y_step);
+        float y_range = y_max - y_min;
 
         // Reserve a strip at the bottom for the time-axis labels
         const float pad_x = 4.0f;
@@ -208,10 +235,16 @@ void chart_panel_draw(AppState* state) {
         float ph = b.height - pad_top - pad_bot;
         if (pw < 4.0f || ph < 4.0f) continue;
 
-        // Grid: 3 horizontal divisions at quarters of the plot area
-        for (int g = 1; g < 4; g++) {
-            float gy = py0 + (float)g * ph / 4.0f;
+        // Horizontal grid: one line per nice Y value, labelled at the left edge
+        for (int k = tick_lo; k <= tick_hi; k++) {
+            double tv = k * y_step;
+            float gy = py0 + ph - (float)((tv - (double)y_min) / (double)y_range) * ph;
             DrawLineEx((Vector2){px0, gy}, (Vector2){px0 + pw, gy}, 1.0f, grid_col);
+            char tick_buf[24];
+            snprintf(tick_buf, sizeof(tick_buf), "%.4g", tv);
+            float ly = gy - 11.0f;
+            if (ly < py0) ly = gy + 1.0f; // top line: label below it so it stays inside the plot
+            DrawTextEx(label_font, tick_buf, (Vector2){px0 + 2, ly}, 10.0f, 1.0f, label_col);
         }
 
         // Line strip + circle markers per sample
@@ -224,6 +257,25 @@ void chart_panel_draw(AppState* state) {
             t_range_us = (double)(t_last - t_first);
             if (t_range_us < 1.0) t_range_us = 1.0;
         }
+
+        // Vertical grid: lines at round wall-clock intervals across the visible time span
+        if (n >= 2) {
+            static const double steps_s[] = {1, 2, 5, 10, 15, 30, 60, 120};
+            double span_s = t_range_us / 1.0e6;
+            double vstep_s = steps_s[7];
+            for (size_t si = 0; si < sizeof(steps_s) / sizeof(steps_s[0]); si++) {
+                if (span_s / steps_s[si] <= 6.0) {
+                    vstep_s = steps_s[si];
+                    break;
+                }
+            }
+            uint64_t vstep_us = (uint64_t)(vstep_s * 1.0e6);
+            for (uint64_t tv = (t_first / vstep_us + 1) * vstep_us; tv < t_last; tv += vstep_us) {
+                float gx = px0 + (float)((double)(tv - t_first) / t_range_us) * pw;
+                DrawLineEx((Vector2){gx, py0}, (Vector2){gx, py0 + ph}, 1.0f, grid_col);
+            }
+        }
+
         if (n >= 2) {
             Vector2 prev_pt = {0};
             for (uint32_t i = 0; i < n; i++) {
@@ -235,13 +287,6 @@ void chart_panel_draw(AppState* state) {
                 prev_pt = cur_pt;
             }
         }
-
-        // Y-axis labels (min/max at the corners of the plot area)
-        char ymin_buf[24], ymax_buf[24];
-        snprintf(ymin_buf, sizeof(ymin_buf), "%.4g", ser->y_min);
-        snprintf(ymax_buf, sizeof(ymax_buf), "%.4g", ser->y_max);
-        DrawTextEx(label_font, ymax_buf, (Vector2){px0 + 2, py0 + 2}, 10.0f, 1.0f, label_col);
-        DrawTextEx(label_font, ymin_buf, (Vector2){px0 + 2, py0 + ph - 12}, 10.0f, 1.0f, label_col);
 
         // X-axis time labels (first sample at left, last at right)
         if (n >= 1) {
