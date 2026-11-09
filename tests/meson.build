@@ -85,7 +85,8 @@ test('json_pp', test_json_pp)
 
 test_cbor_pp = executable('test_cbor_pp',
     'test_cbor_pp.c', '../src/model/cbor_pp.c', '../src/model/json_pp.c', '../src/model/util.c',
-    include_directories : test_inc
+    include_directories : test_inc,
+    dependencies : m_dep
 )
 test('cbor_pp', test_cbor_pp)
 
