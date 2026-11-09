@@ -1003,6 +1003,22 @@ void inspector_widget_render(AppState* state) {
                               .wrapMode = CLAY_TEXT_WRAP_NONE,
                           }));
             }
+            // Delete this topic's retained message (publishes an empty retained payload)
+            if (node->has_retained) {
+                CLAY(CLAY_ID("InspectorDelRetainedBtn"),
+                     {
+                         .layout = {.padding = {8, 8, 4, 4}},
+                         .backgroundColor = THEME_BG_BUTTON,
+                         .cornerRadius = CLAY_CORNER_RADIUS(3),
+                     }) {
+                    CLAY_TEXT(CLAY_STRING("Retained \xc3\x97"),
+                              CLAY_TEXT_CONFIG({
+                                  .fontSize = 12,
+                                  .fontId = FONT_DEFAULT,
+                                  .textColor = THEME_RED,
+                              }));
+                }
+            }
             // Export history of this topic subtree to CSV
             CLAY(CLAY_ID("InspectorExportBtn"),
                  {
@@ -1242,6 +1258,11 @@ void inspector_widget_render(AppState* state) {
 
     if (close_requested) {
         state->selected_topic = NULL;
+    }
+    if (node->has_retained && Clay_PointerOver(Clay_GetElementId(CLAY_STRING("InspectorDelRetainedBtn"))) &&
+        IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        state->delete_retained_requested = node;
+        state->delete_retained_subtree = false;
     }
 
     // Chart [+] buttons next to numeric JSON lines - only lines that were laid out this frame can be hit

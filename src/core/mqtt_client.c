@@ -13,6 +13,7 @@
 
 #include "core/mqtt_client.h"
 #include "core/ssh_tunnel.h"
+#include "model/topic_tree.h"
 #include "model/util.h"
 #include "platform/log.h"
 
@@ -452,4 +453,19 @@ bool mqtt_client_publish(MqttClient* client, const char* topic, const void* payl
                          bool retain) {
     if (!client->mosq) return false;
     return mosquitto_publish(client->mosq, NULL, topic, (int)payload_len, payload, qos, retain) == MOSQ_ERR_SUCCESS;
+}
+
+uint32_t mqtt_client_delete_retained(MqttClient* client, const TopicNode* node, bool subtree) {
+    uint32_t sent = 0;
+    if (node->has_retained) {
+        char path[512];
+        topic_node_full_path(node, path, sizeof(path));
+        if (mqtt_client_publish(client, path, NULL, 0, 1, true)) sent++;
+    }
+    if (subtree) {
+        for (uint32_t i = 0; i < node->child_count; i++) {
+            if (node->children[i]) sent += mqtt_client_delete_retained(client, node->children[i], true);
+        }
+    }
+    return sent;
 }

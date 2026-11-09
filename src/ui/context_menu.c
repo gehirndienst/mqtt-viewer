@@ -29,6 +29,7 @@ void context_menu_render(AppState* state) {
     bool do_expand = false;
     bool do_collapse = false;
     bool do_clear = false;
+    bool do_delete_retained = false;
 
     // Static string IDs for menu items - hashed immediately by CLAY_SID
     static const char* id_copy = "CMCopy";
@@ -36,12 +37,14 @@ void context_menu_render(AppState* state) {
     static const char* id_expand = "CMExpand";
     static const char* id_collapse = "CMCollapse";
     static const char* id_clear = "CMClear";
+    static const char* id_delete_retained = "CMDelRetained";
 
     // Menu item label strings - must be in static storage for CLAY_TEXT
     static const char* label_copy = "Copy Topic Path";
     static const char* label_publish = "Publish to This Topic";
     static const char* label_expand = "Expand All";
     static const char* label_collapse = "Collapse All";
+    static const char* label_delete_retained = "Delete Retained";
     static const char* label_clear = "Clear History";
 
     CLAY(CLAY_ID("ContextMenu"),
@@ -175,6 +178,26 @@ void context_menu_render(AppState* state) {
                  }) {}
         }
 
+        // Delete Retained
+        Clay_String delret_id_cs = ui_utils_clay_string(id_delete_retained);
+        CLAY(CLAY_SID(delret_id_cs),
+             {
+                 .layout =
+                     {
+                         .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_FIT(0)},
+                         .padding = {12, 12, 6, 6},
+                     },
+                 .cornerRadius = CLAY_CORNER_RADIUS(3),
+             }) {
+            Clay_String lbl = ui_utils_clay_string(label_delete_retained);
+            CLAY_TEXT(lbl,
+                      CLAY_TEXT_CONFIG({
+                          .fontSize = 13,
+                          .fontId = FONT_DEFAULT,
+                          .textColor = THEME_RED,
+                      }));
+        }
+
         // Clear History
         Clay_String clear_id_cs = ui_utils_clay_string(id_clear);
         CLAY(CLAY_SID(clear_id_cs),
@@ -218,6 +241,10 @@ void context_menu_render(AppState* state) {
     if (Clay_PointerOver(Clay_GetElementId(clear_id_cs)) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         do_clear = true;
     }
+    if (Clay_PointerOver(Clay_GetElementId(ui_utils_clay_string(id_delete_retained))) &&
+        IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        do_delete_retained = true;
+    }
 
     // Dismiss on Escape or click-outside (checked AFTER item click detection)
     if (state->context_menu_open) {
@@ -252,6 +279,11 @@ void context_menu_render(AppState* state) {
     }
     if (do_clear) {
         state->clear_topic_requested = state->context_menu_target;
+        state->context_menu_open = false;
+    }
+    if (do_delete_retained) {
+        state->delete_retained_requested = state->context_menu_target;
+        state->delete_retained_subtree = true;
         state->context_menu_open = false;
     }
 }

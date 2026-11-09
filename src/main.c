@@ -189,7 +189,7 @@ int main(void) {
                 if (node == state.selected_topic) s_tpt_acc += 1.0f;
                 node->last_payload_len = m->payload_len;
                 node->last_qos = m->qos;
-                node->has_retained = m->retained || node->has_retained;
+                node->has_retained = m->payload_len == 0 ? false : (m->retained || node->has_retained);
 
                 // NOTE: refresh the display strings only every `ui_tick_us`. Each refresh is a Clay text-cache miss, so
                 // for a fast topic this collapses to a lot. First message always refreshes
@@ -264,6 +264,25 @@ int main(void) {
             state.total_messages = state.total_messages > removed ? state.total_messages - removed : 0;
         }
 
+        // handle "Delete Retained": an empty retained publish makes the broker drop the stored message
+        if (state.delete_retained_requested) {
+            TopicNode* root = state.delete_retained_requested;
+            state.delete_retained_requested = NULL;
+            uint32_t sent = mqtt_client_delete_retained(mqtt, root, state.delete_retained_subtree);
+            char log_msg[600];
+            char path[512];
+            topic_node_full_path(root, path, sizeof(path));
+            if (sent > 0) {
+                snprintf(log_msg, sizeof(log_msg), "Requested deletion of %u retained message(s) under '%s'", sent,
+                         path);
+                connection_log_add(&state.conn_log, CONN_LOG_INFO, log_msg);
+            } else {
+                snprintf(log_msg, sizeof(log_msg), "No retained delete requests sent under '%s' (not connected?)",
+                         path);
+                connection_log_add(&state.conn_log, CONN_LOG_WARN, log_msg);
+            }
+        }
+
         // handle disconnect request
         if (state.disconnect_requested) {
             state.disconnect_requested = false;
@@ -273,6 +292,7 @@ int main(void) {
             message_buf_clear(&state.global_history);
             history_saved = message_buf_generation(&state.global_history);
             state.selected_topic = NULL;
+            for (int si = 0; si < CHART_MAX_SERIES; si++) chart_series_reset(&state.chart_series[si]);
             s_tpt_node = NULL;
             s_tpt_acc = 0.0f;
             s_tpt_timer = 0.0f;

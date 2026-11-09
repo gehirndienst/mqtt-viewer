@@ -13,7 +13,7 @@
  * @brief Render the right-click context menu for a topic tree node.
  *
  * Items: Copy Topic Path, Publish Here, Expand All, Collapse All,
- * Clear History. Dismisses on Escape or click-outside.
+ * Delete Retained, Clear History. Dismisses on Escape or click-outside.
  * Must be called inside an active Clay layout pass at zIndex >= 200.
  */
 void context_menu_render(AppState* state);

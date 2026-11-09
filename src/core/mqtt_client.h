@@ -9,6 +9,7 @@
 
 #include "model/connection_log.h"
 #include "model/spsc_queue.h"
+#include "model/topic_tree.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -127,5 +128,16 @@ bool mqtt_client_unsubscribe(MqttClient* client, const char* topic_filter);
  */
 bool mqtt_client_publish(MqttClient* client, const char* topic, const void* payload, uint32_t payload_len, uint8_t qos,
                          bool retain);
+
+/**
+ * @brief Delete retained messages by publishing an empty retained payload (main thread only).
+ *
+ * Only nodes with has_retained set are published. The flag is left untouched: it clears when the
+ * broker echoes the empty message back, so a rejected delete keeps its badge.
+ * @param node     Topic to delete.
+ * @param subtree  Also delete every descendant's retained message.
+ * @return Number of delete publishes accepted.
+ */
+uint32_t mqtt_client_delete_retained(MqttClient* client, const TopicNode* node, bool subtree);
 
 #endif
